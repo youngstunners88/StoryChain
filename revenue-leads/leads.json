@@ -1,0 +1,303 @@
+{
+  "generated": "2026-02-21T02:28:57.756610",
+  "total_pipeline": 154000,
+  "leads": [
+    {
+      "business": {
+        "name": "Craft Restaurant",
+        "type": "Restaurant",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Website redesign",
+          "Online menu",
+          "Order system"
+        ],
+        "potential_value": 8500,
+        "contact_method": "walk-in"
+      },
+      "outreach_email": "\nSubject: Quick question about Craft Restaurant's online presence\n\nHi Craft Restaurant Team,\n\nI noticed Craft Restaurant could benefit from a better online presence - \nspecifically around Website redesign, Online menu.\n\nI'm an AI developer who builds automated systems for local businesses. \nI've helped restaurants and venues in the Maboneng area:\n\n\u2713 Increase online orders by 40%\n\u2713 Automate social media posting (saves 5+ hours/week)\n\u2713 Build booking systems that work 24/7\n\nQuick question: Would you be open to a free 15-minute chat about how \nautomated systems could help Craft Restaurant?\n\nNo sales pitch - just practical ideas you can use.\n\nReply \"YES\" and I'll send over a few time slots.\n\nBest,\nWealthWeaver AI\nAutonomous Development Systems\nhttps://kofi.zo.space\n\nP.S. I'm based locally and understand the Maboneng market.\n",
+      "proposal": {
+        "business": "Craft Restaurant",
+        "date": "2026-02-21T02:28:57.756539",
+        "items": [
+          {
+            "service": "Website redesign",
+            "price": 5000
+          },
+          {
+            "service": "Online menu",
+            "price": 1500
+          },
+          {
+            "service": "Order system",
+            "price": 3500
+          }
+        ],
+        "total": 10000,
+        "deposit": 5000.0,
+        "timeline": "2-3 weeks",
+        "includes": [
+          "Free consultation",
+          "Mobile-responsive design",
+          "Basic SEO setup",
+          "1 month support",
+          "Training documentation"
+        ]
+      },
+      "status": "pending",
+      "created": "2026-02-21T02:28:57.756556"
+    },
+    {
+      "business": {
+        "name": "Market on Main",
+        "type": "Market",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Vendor listing website",
+          "Event calendar",
+          "Newsletter"
+        ],
+        "potential_value": 12000,
+        "contact_method": "email",
+        "contact_email": "bradleykirshenbaum@me.com"
+      },
+      "outreach_email": "\nSubject: Quick question about Market on Main's online presence\n\nHi Market on Main Team,\n\nI noticed Market on Main could benefit from a better online presence - \nspecifically around Vendor listing website, Event calendar.\n\nI'm an AI developer who builds automated systems for local businesses. \nI've helped restaurants and venues in the Maboneng area:\n\n\u2713 Increase online orders by 40%\n\u2713 Automate social media posting (saves 5+ hours/week)\n\u2713 Build booking systems that work 24/7\n\nQuick question: Would you be open to a free 15-minute chat about how \nautomated systems could help Market on Main?\n\nNo sales pitch - just practical ideas you can use.\n\nReply \"YES\" and I'll send over a few time slots.\n\nBest,\nWealthWeaver AI\nAutonomous Development Systems\nhttps://kofi.zo.space\n\nP.S. I'm based locally and understand the Maboneng market.\n",
+      "proposal": {
+        "business": "Market on Main",
+        "date": "2026-02-21T02:28:57.756569",
+        "items": [
+          {
+            "service": "Vendor listing website",
+            "price": 8000
+          },
+          {
+            "service": "Event calendar",
+            "price": 2000
+          },
+          {
+            "service": "Newsletter",
+            "price": 1500
+          }
+        ],
+        "total": 11500,
+        "deposit": 5750.0,
+        "timeline": "2-3 weeks",
+        "includes": [
+          "Free consultation",
+          "Mobile-responsive design",
+          "Basic SEO setup",
+          "1 month support",
+          "Training documentation"
+        ]
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T02:28:57.756571"
+    },
+    {
+      "business": {
+        "name": "Arts on Main",
+        "type": "Gallery",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Event website",
+          "Artist portfolio",
+          "Booking system"
+        ],
+        "potential_value": 15000,
+        "contact_method": "walk-in",
+        "contact_email": "dimakatso@artsonmain.co.za"
+      },
+      "outreach_email": "\nSubject: Quick question about Arts on Main's online presence\n\nHi Arts on Main Team,\n\nI noticed Arts on Main could benefit from a better online presence - \nspecifically around Event website, Artist portfolio.\n\nI'm an AI developer who builds automated systems for local businesses. \nI've helped restaurants and venues in the Maboneng area:\n\n\u2713 Increase online orders by 40%\n\u2713 Automate social media posting (saves 5+ hours/week)\n\u2713 Build booking systems that work 24/7\n\nQuick question: Would you be open to a free 15-minute chat about how \nautomated systems could help Arts on Main?\n\nNo sales pitch - just practical ideas you can use.\n\nReply \"YES\" and I'll send over a few time slots.\n\nBest,\nWealthWeaver AI\nAutonomous Development Systems\nhttps://kofi.zo.space\n\nP.S. I'm based locally and understand the Maboneng market.\n",
+      "proposal": {
+        "business": "Arts on Main",
+        "date": "2026-02-21T02:28:57.756583",
+        "items": [
+          {
+            "service": "Event website",
+            "price": 10000
+          },
+          {
+            "service": "Artist portfolio",
+            "price": 3000
+          },
+          {
+            "service": "Booking system",
+            "price": 4000
+          }
+        ],
+        "total": 17000,
+        "deposit": 8500.0,
+        "timeline": "2-3 weeks",
+        "includes": [
+          "Free consultation",
+          "Mobile-responsive design",
+          "Basic SEO setup",
+          "1 month support",
+          "Training documentation"
+        ]
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T02:28:57.756585"
+    },
+    {
+      "business": {
+        "name": "The Living Room",
+        "type": "Cafe/Bar",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Social media automation",
+          "Event promotion",
+          "Loyalty app"
+        ],
+        "potential_value": 6000,
+        "contact_method": "walk-in",
+        "contact_email": "events@livingroomjozi.co.za"
+      },
+      "outreach_email": "\nSubject: Quick question about The Living Room's online presence\n\nHi The Living Room Team,\n\nI noticed The Living Room could benefit from a better online presence - \nspecifically around Social media automation, Event promotion.\n\nI'm an AI developer who builds automated systems for local businesses. \nI've helped restaurants and venues in the Maboneng area:\n\n\u2713 Increase online orders by 40%\n\u2713 Automate social media posting (saves 5+ hours/week)\n\u2713 Build booking systems that work 24/7\n\nQuick question: Would you be open to a free 15-minute chat about how \nautomated systems could help The Living Room?\n\nNo sales pitch - just practical ideas you can use.\n\nReply \"YES\" and I'll send over a few time slots.\n\nBest,\nWealthWeaver AI\nAutonomous Development Systems\nhttps://kofi.zo.space\n\nP.S. I'm based locally and understand the Maboneng market.\n",
+      "proposal": {
+        "business": "The Living Room",
+        "date": "2026-02-21T02:28:57.756592",
+        "items": [
+          {
+            "service": "Social media automation",
+            "price": 2500
+          },
+          {
+            "service": "Event promotion",
+            "price": 1500
+          },
+          {
+            "service": "Loyalty app",
+            "price": 5000
+          }
+        ],
+        "total": 9000,
+        "deposit": 4500.0,
+        "timeline": "2-3 weeks",
+        "includes": [
+          "Free consultation",
+          "Mobile-responsive design",
+          "Basic SEO setup",
+          "1 month support",
+          "Training documentation"
+        ]
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T02:28:57.756593"
+    },
+    {
+      "business": {
+        "name": "Canteen",
+        "type": "Restaurant",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Reservation system",
+          "Menu management",
+          "Reviews integration"
+        ],
+        "potential_value": 7500,
+        "contact_method": "email"
+      },
+      "outreach_email": "\nSubject: Quick question about Canteen's online presence\n\nHi Canteen Team,\n\nI noticed Canteen could benefit from a better online presence - \nspecifically around Reservation system, Menu management.\n\nI'm an AI developer who builds automated systems for local businesses. \nI've helped restaurants and venues in the Maboneng area:\n\n\u2713 Increase online orders by 40%\n\u2713 Automate social media posting (saves 5+ hours/week)\n\u2713 Build booking systems that work 24/7\n\nQuick question: Would you be open to a free 15-minute chat about how \nautomated systems could help Canteen?\n\nNo sales pitch - just practical ideas you can use.\n\nReply \"YES\" and I'll send over a few time slots.\n\nBest,\nWealthWeaver AI\nAutonomous Development Systems\nhttps://kofi.zo.space\n\nP.S. I'm based locally and understand the Maboneng market.\n",
+      "proposal": {
+        "business": "Canteen",
+        "date": "2026-02-21T02:28:57.756604",
+        "items": [
+          {
+            "service": "Reservation system",
+            "price": 3000
+          },
+          {
+            "service": "Menu management",
+            "price": 1500
+          },
+          {
+            "service": "Reviews integration",
+            "price": 1000
+          }
+        ],
+        "total": 5500,
+        "deposit": 2750.0,
+        "timeline": "2-3 weeks",
+        "includes": [
+          "Free consultation",
+          "Mobile-responsive design",
+          "Basic SEO setup",
+          "1 month support",
+          "Training documentation"
+        ]
+      },
+      "status": "pending",
+      "created": "2026-02-21T02:28:57.756605"
+    },
+    {
+      "business": {
+        "name": "Pata Pata African Restaurant",
+        "type": "Restaurant",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Website redesign",
+          "Online booking system",
+          "Social media management"
+        ],
+        "potential_value": 15000,
+        "contact_method": "phone",
+        "phone": "073 036 9031",
+        "website": "www.patapata.co.za"
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T07:00:00"
+    },
+    {
+      "business": {
+        "name": "Curiocity Backpackers",
+        "type": "Hostel",
+        "address": "Maboneng Precinct",
+        "services_needed": [
+          "Booking system integration",
+          "Website development",
+          "Social media marketing"
+        ],
+        "potential_value": 15000,
+        "contact_method": "email",
+        "contact_email": "yamkela@curiocityjoburg.com"
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T07:00:00"
+    },
+    {
+      "business": {
+        "name": "Differential Capital",
+        "type": "Financial Services",
+        "address": "Bryanston, Sandton",
+        "services_needed": [
+          "Investment reporting automation",
+          "Client onboarding",
+          "AI analytics"
+        ],
+        "potential_value": 42500,
+        "contact_method": "email",
+        "contact_email": "info@differential.co.za"
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T07:00:00"
+    },
+    {
+      "business": {
+        "name": "Mkhabela Huntley Attorneys",
+        "type": "Legal Firm",
+        "address": "Sandton, Johannesburg",
+        "services_needed": [
+          "Document automation",
+          "Legal research AI",
+          "Client intake system"
+        ],
+        "potential_value": 32500,
+        "contact_method": "email",
+        "contact_email": "norton@mhalaw.co.za"
+      },
+      "status": "ready_to_send",
+      "created": "2026-02-21T07:00:00"
+    }
+  ]
+}

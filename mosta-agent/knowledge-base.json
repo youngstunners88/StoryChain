@@ -1,0 +1,217 @@
+{
+  "brand": {
+    "name": "iHhashi",
+    "tagline": "Delivery platform for South Africa - Riders, Merchants, Customers",
+    "description": "South Africa's fastest-growing delivery platform for food, groceries, fresh produce, and courier services. Inspired by Ele.me, built for Mzansi.",
+    "website": "https://github.com/youngstunners88/ihhashi",
+    "github": "https://github.com/youngstunners88/ihhashi",
+    "playStore": "iHhashi - Food Delivery SA",
+    "version": "0.3.0"
+  },
+  "logo": {
+    "description": "Yellow background with a black silhouette of a horse rearing on its hind legs to the left. The horse has a white eye and a smiling mouth showing white teeth. To the right of the horse, the word 'iHhashi' is written in a bold, black, sans-serif font.",
+    "path": "/home/workspace/iHhashi/frontend/public/logo.png",
+    "colors": {
+      "primary": "yellow",
+      "secondary": "black",
+      "accent": "white"
+    },
+    "symbolism": "Horse represents speed, reliability, and strength - perfect for a delivery service. The name 'iHhashi' means 'horse' in Zulu."
+  },
+  "IMPORTANT": {
+    "clarification": "iHhashi is a DELIVERY platform, NOT a taxi/ride-hailing app. It does NOT transport passengers. It delivers: groceries, food, fruits, vegetables, dairy products, and provides personal courier services.",
+    "evolution": "iHhashi evolved from Boober (a ride-hailing project), but pivoted on 2026-02-25 to focus on delivery services due to lower regulatory barriers and faster path to revenue in the SA market."
+  },
+  "services": {
+    "food_delivery": {
+      "description": "Order food from local South African restaurants",
+      "examples": [
+        "Kota",
+        "Bunny Chow",
+        "Gatsby",
+        "Braai"
+      ]
+    },
+    "groceries": {
+      "description": "Grocery delivery from local stores"
+    },
+    "fresh_produce": {
+      "description": "Fresh fruits and vegetables delivery"
+    },
+    "courier": {
+      "description": "Personal courier services for packages and documents"
+    }
+  },
+  "user_types": {
+    "customers": {
+      "description": "People who order food, groceries, or use courier services",
+      "capabilities": [
+        "Browse merchants by category/location",
+        "View menus and item details",
+        "Place and track orders",
+        "Rate merchants and riders"
+      ]
+    },
+    "merchants": {
+      "description": "Restaurants, grocery stores, and vendors who sell on the platform",
+      "capabilities": [
+        "Manage menu and orders",
+        "View analytics",
+        "Handle promotions"
+      ]
+    },
+    "riders": {
+      "description": "Delivery servicemen who deliver orders to customers",
+      "capabilities": [
+        "Accept delivery requests",
+        "Navigate to pickup/delivery",
+        "View earnings"
+      ],
+      "transport_options": [
+        "Car",
+        "Motorcycle",
+        "Scooter",
+        "Bicycle",
+        "On-foot",
+        "Wheelchair",
+        "Running",
+        "Rollerblade"
+      ]
+    }
+  },
+  "features": {
+    "blue_horse_verification": {
+      "description": "Trust and safety verification system",
+      "levels": {
+        "0": "Unverified",
+        "1": "Basic verification",
+        "2": "Full verification (Blue Horse badge)",
+        "3": "Premium verification"
+      },
+      "vendor_requirements": [
+        "ID",
+        "Company registration",
+        "Business license",
+        "Proof of address"
+      ],
+      "rider_requirements": [
+        "ID",
+        "License",
+        "Vehicle registration",
+        "Number plate"
+      ]
+    },
+    "multi_language": {
+      "languages": [
+        "English",
+        "Zulu/isiZulu",
+        "Sotho/Sesotho",
+        "Afrikaans",
+        "Tswana/Setswana",
+        "Xhosa/isiXhosa"
+      ],
+      "codes": [
+        "en",
+        "zu",
+        "st",
+        "af",
+        "tn",
+        "xh"
+      ]
+    },
+    "payments": {
+      "methods": [
+        "Card",
+        "Cash"
+      ],
+      "payouts": {
+        "schedule": "Every Sunday at 11:11 AM SAST",
+        "minimum": "R100",
+        "providers": [
+          "Paystack",
+          "SA banks (FNB, Capitec, Standard Bank, etc.)"
+        ]
+      },
+      "tipping": {
+        "platform_fee": "0%",
+        "note": "100% of tips go to delivery servicemen"
+      }
+    },
+    "account_management": {
+      "free_trial": "45 days for all new users",
+      "warning_system": "3 warnings = automatic suspension",
+      "termination": "Criminal activity = permanent termination",
+      "appeals": "30-day window for suspension appeals"
+    },
+    "product_features": {
+      "images_per_product": 5,
+      "vat_inclusive_pricing": true,
+      "vat_rate": "15%",
+      "ratings": "1-5 stars",
+      "reviews": "All users can read and comment, vendors can respond"
+    }
+  },
+  "south_africa": {
+    "currency": "ZAR (R)",
+    "provinces": 9,
+    "local_food": [
+      "Kota",
+      "Bunny Chow",
+      "Gatsby",
+      "Braai"
+    ],
+    "vat": "15%",
+    "slang": {
+      "Lekker": "nice/good",
+      "Sharp": "okay/yes",
+      "Eish": "expression of surprise/frustration",
+      "Bhubesi": "lion - strength",
+      "Mzansi": "South Africa",
+      "Jozi": "Johannesburg",
+      "KOTA": "township sandwich"
+    },
+    "cultural_moments": [
+      "Payday weekends",
+      "Month-end grocery runs",
+      "December festive season",
+      "Heritage Day (Braai Day)",
+      "Youth Day",
+      "Freedom Day",
+      "Regular Sunday family lunches"
+    ]
+  },
+  "tech_stack": {
+    "backend": "FastAPI + MongoDB",
+    "frontend": "React + Tailwind",
+    "mobile": "Capacitor (Android)",
+    "infrastructure": [
+      "Docker Compose",
+      "GitHub Actions CI/CD"
+    ],
+    "error_tracking": "GlitchTip",
+    "auth": "Supabase (Phone OTP)",
+    "analytics": "PostHog"
+  },
+  "content_guidelines": {
+    "tone": "Authentic, culturally-relevant, inclusive",
+    "languages_priority": [
+      "English",
+      "Zulu",
+      "Xhosa",
+      "Sotho",
+      "Afrikaans",
+      "Tswana"
+    ],
+    "avoid": [
+      "Any reference to taxi or ride-hailing",
+      "Passenger transport mentions",
+      "Confusion with Boober (archived project)"
+    ],
+    "emphasize": [
+      "Speed and reliability",
+      "Local South African food and culture",
+      "Inclusive delivery options (bicycle, walking, wheelchair)",
+      "Support for local merchants and riders"
+    ]
+  }
+}

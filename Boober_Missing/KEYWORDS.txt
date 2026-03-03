@@ -1,0 +1,105 @@
+=== BOOBER MISSING - PROJECT KEYWORDS ===
+
+PRIMARY KEYWORDS:
+ride-hailing
+taxi app
+ride-sharing
+transportation
+driver app
+passenger app
+e-hailing
+ride booking
+cab service
+ride dispatch
+
+LOCATION KEYWORDS:
+South Africa
+Cape Town
+Johannesburg
+Durban
+Pretoria
+Southern Africa
+African market
+SA transport
+
+FEATURE KEYWORDS:
+GPS tracking
+real-time rides
+ride estimation
+fare calculator
+driver earnings
+ride safety
+female drivers
+safe transport
+affordable rides
+instant booking
+driver-partner
+ride-hailing platform
+mobility service
+transport technology
+driver marketplace
+
+BUSINESS KEYWORDS:
+ride-hailing startup
+taxi alternative
+private driver
+ride convenience
+transport app
+car service
+ride request
+driver matching
+route optimization
+ride history
+passenger safety
+driver ratings
+ride payments
+digital wallet
+mobile payments
+
+TECHNOLOGY KEYWORDS:
+mobile app
+React Native
+Expo
+Node.js
+TypeScript
+PostgreSQL
+real-time tracking
+WebSocket
+GPS navigation
+payment integration
+
+MARKETING KEYWORDS:
+safe rides
+fair prices
+trusted drivers
+on-demand rides
+driver verification
+ride tracking
+ETA notifications
+ride completion
+trip history
+driver dashboard
+
+INDUSTRY KEYWORDS:
+transport network
+ride-hailing service
+mobility platform
+driver community
+passenger community
+ride-hailing ecosystem
+transport innovation
+smart mobility
+ride-hailing business
+transport solution
+
+SEO META KEYWORDS:
+ride hailing app South Africa
+taxi app Cape Town
+ride sharing Johannesburg
+e-hailing service
+driver partner program
+ride booking app
+safe taxi service
+affordable rides SA
+transport app South Africa
+ride hailing platform

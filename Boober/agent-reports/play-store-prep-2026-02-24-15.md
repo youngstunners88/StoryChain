@@ -1,0 +1,159 @@
+# Boober Google Play Store Preparation Report
+**Generated:** 24 February 2026, 15:35 SAST
+
+---
+
+## 📋 CHECKLIST SUMMARY
+
+| Item | Status | Notes |
+|------|--------|-------|
+| App Bundle (AAB) | ❌ Missing | No Android/Capacitor project exists |
+| App Icons | ✅ Ready | 512x512 icon exists |
+| Feature Graphic | ✅ Ready | 1024x500 PNG valid |
+| Phone Screenshots | ❌ Missing | Placeholder only, no actual images |
+| Privacy Policy | ✅ Ready | POPIA-compliant policy exists |
+| Store Description | ✅ Ready | Short + full descriptions created |
+| Content Rating | ❌ Not done | Needs Google Forms submission |
+| Data Safety Section | ❌ Not done | Needs Play Console completion |
+| App Signing Key | ❌ Not done | Requires Android project first |
+
+---
+
+## ✅ ASSETS ALREADY AVAILABLE
+
+### Store Assets Directory: `/home/workspace/Boober/store-assets/`
+
+| File | Status | Details |
+|------|--------|---------|
+| `icon-512.png` | ✅ | 512x512 PNG, valid |
+| `feature-graphic-1024x500.png` | ✅ | 1024x500 PNG, valid |
+| `privacy-policy.md` | ✅ | POPIA-compliant, 6082 bytes |
+| `store-description.md` | ✅ | Complete with short + full descriptions |
+
+### Additional Assets Found:
+- **PWA Manifest** (`public/manifest.json`): Contains all required icon sizes (72, 96, 128, 144, 152, 192, 384, 512)
+- **Privacy Policy** also exists at: `docs/privacy-policy.md` (full version)
+
+---
+
+## ❌ MISSING ITEMS - ACTION REQUIRED
+
+### 1. App Bundle (AAB) - BLOCKER
+
+**Current State:** No Android project or Capacitor integration exists.
+
+**Required Actions:**
+1. Install Capacitor: `npm install @capacitor/core @capacitor/cli`
+2. Initialize Capacitor: `npx cap init`
+3. Add Android platform: `npx cap add android`
+4. Configure build for AAB: Update `android/app/build.gradle` with signing config
+5. Build AAB: `npx cap build android --release`
+
+**Alternative (PWA-only):**
+- Submit as PWA via Trusted Web Activity (TWA)
+- Limited features compared to native app
+- Requires https://boober.app to be live and functional
+
+---
+
+### 2. Phone Screenshots - BLOCKER
+
+**Current State:** Only placeholder README exists at `store-assets/phone-screenshots/`
+
+**Required:**
+- 3-8 phone screenshots (PNG/JPEG, max 8MB each)
+- Recommended aspect ratio: 16:9 or 9:16
+- Minimum width: 320px
+
+**Recommended Screenshots:**
+1. `onboarding-screen.png` - Role selection (Passenger/Driver/Marshal)
+2. `home-dashboard.png` - Main dashboard with nearby ranks
+3. `rank-status.png` - Real-time queue information
+4. `driver-profile.png` - Driver verification profile
+5. `safety-features.png` - Trip sharing & emergency contacts
+6. `map-view.png` - Interactive map with taxi ranks
+
+**How to Capture:**
+- Run app in browser with DevTools Device Mode
+- Or use Capacitor to run on device/emulator
+- Or create mockups in Figma/Canva
+
+---
+
+### 3. Play Store Account Setup - BLOCKER
+
+**Required:**
+- [ ] Google Play Developer Account ($25 one-time fee)
+- [ ] Complete Content Rating questionnaire
+- [ ] Fill Data Safety section
+- [ ] Set target audience (recommend 18+ due to location features)
+- [ ] Upload app signing key (from Android build)
+
+---
+
+## 📝 STORE DESCRIPTION (from existing file)
+
+### App Name
+**Boober - SA Taxi Made Easy**
+
+### Short Description (80 chars)
+> Real-time taxi rank status, verified drivers, safer rides across South Africa.
+
+### Full Description
+**Boober - Your Trusted Taxi Companion in South Africa** 🇿🇦
+
+Navigating South Africa's taxi system just got easier, safer, and more connected. Boober connects passengers with verified taxi drivers and real-time rank information - no payment integration needed, just the info you need for a safer journey.
+
+**KEY FEATURES:**
+- Real-Time Rank Status - Check queue capacity before arriving
+- Verified Drivers - Community verification system
+- Safety First - Trip sharing, emergency contacts
+- Community-Powered - Marshal reports, driver ratings
+- Cash-based (no payment integration needed)
+
+**Target Audience:** Passengers, Drivers, and Marshals in South Africa
+
+---
+
+## 🛡️ DATA SAFETY SECTION (recommended)
+
+| Data Type | Collection | Purpose |
+|-----------|------------|---------|
+| Location (precise) | Yes | Ride matching, pickup/dropoff |
+| Location (approximate) | Yes | Rank nearby detection |
+| Personal info (name, phone) | Yes | Account creation |
+| User content (reviews) | Yes | Community ratings |
+| Device ID | Yes | Fraud prevention |
+
+**Data Sharing:** Not sold to third parties
+
+---
+
+## 📅 RECOMMENDED NEXT STEPS
+
+### Immediate (Before Launch)
+1. **Set up Capacitor** for native Android build
+2. **Capture phone screenshots** from running app
+3. **Purchase Google Play Developer Account** ($25)
+
+### Post-Launch
+1. Submit Content Rating questionnaire
+2. Complete Data Safety section
+3. Configure app signing
+4. Submit for review
+
+---
+
+## 📊 PROJECT STATUS
+
+**Overall Play Store Readiness: ~40%**
+
+- ✅ Documentation: 100%
+- ✅ App Icons/Graphics: 100%
+- ❌ Mobile Build (AAB): 0%
+- ❌ Screenshots: 0%
+- ❌ Play Store Account: 0%
+
+---
+
+*Report generated by Boober Google Play Store Preparation Agent*

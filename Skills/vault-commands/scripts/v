@@ -1,0 +1,7 @@
+#!/bin/bash
+# Vault Commands - Quick wrapper
+# Usage: v <command> [args]
+# Example: v /context
+
+cd /home/workspace/Skills/vault-commands
+bun scripts/vault.ts "$@"

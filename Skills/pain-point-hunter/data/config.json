@@ -1,0 +1,80 @@
+{
+  "heartbeat": {
+    "cadenceMinutes": 30,
+    "workingHours": { "start": 8, "end": 22 },
+    "timezone": "Africa/Johannesburg"
+  },
+  "discovery": {
+    "sources": [
+      "google_maps_reviews",
+      "reddit_complaints",
+      "twitter_mentions",
+      "linkedin_posts",
+      "industry_forums"
+    ],
+    "keywords": [
+      "struggling with",
+      "need help with",
+      "frustrated by",
+      "looking for solution",
+      "pain point",
+      "challenge",
+      "problem",
+      "issue",
+      "doesn't work",
+      "terrible experience",
+      "worst",
+      "avoid",
+      "disappointed",
+      "unhappy",
+      "complaint"
+    ],
+    "industries": [
+      "small business",
+      "restaurants",
+      "retail",
+      "professional services",
+      "e-commerce",
+      "real estate",
+      "healthcare",
+      "education",
+      "hospitality",
+      "construction"
+    ],
+    "locations": ["South Africa", "Johannesburg", "Cape Town", "Durban", "Pretoria", "Gauteng"]
+  },
+  "solutionBuilder": {
+    "capabilities": [
+      "website",
+      "automation",
+      "integration",
+      "dashboard",
+      "mobile_app",
+      "api",
+      "landing_page",
+      "booking_system",
+      "inventory_tracker"
+    ],
+    "maxBuildTimeMinutes": 60,
+    "autoDeploy": false
+  },
+  "outreach": {
+    "channels": ["email", "telegram"],
+    "templates": "templates/",
+    "maxDailyOutreach": 20,
+    "followUpCadence": [3, 7, 14],
+    "workingHours": { "start": 9, "end": 17 }
+  },
+  "revenue": {
+    "targetPerDay": 480,
+    "currency": "ZAR",
+    "minProjectValue": 2000,
+    "pricingModel": "value-based",
+    "pricingTiers": {
+      "website": { "min": 3000, "max": 15000 },
+      "automation": { "min": 2000, "max": 8000 },
+      "integration": { "min": 2500, "max": 10000 },
+      "dashboard": { "min": 4000, "max": 20000 }
+    }
+  }
+}

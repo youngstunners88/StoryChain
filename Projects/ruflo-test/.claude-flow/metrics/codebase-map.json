@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-02-26T02:13:20.575Z",
+  "projectRoot": "/home/workspace/Projects/ruflo-test",
+  "structure": {
+    "hasPackageJson": false,
+    "hasTsConfig": false,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1772072000575
+}

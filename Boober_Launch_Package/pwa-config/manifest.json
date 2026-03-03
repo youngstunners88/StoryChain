@@ -1,0 +1,137 @@
+{
+  "name": "Boober - Minibus Taxi Hailing",
+  "short_name": "Boober",
+  "description": "Johannesburg's premier minibus taxi hailing app. Find taxis, track rides, and pay your way.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#E63946",
+  "orientation": "portrait-primary",
+  "scope": "/",
+  "lang": "en-ZA",
+  "categories": ["navigation", "transport", "travel"],
+  "iarc_rating_id": "",
+  "prefer_related_applications": false,
+  "icons": [
+    {
+      "src": "/icons/icon-72x72.png",
+      "sizes": "72x72",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-96x96.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-128x128.png",
+      "sizes": "128x128",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-152x152.png",
+      "sizes": "152x152",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-384x384.png",
+      "sizes": "384x384",
+      "type": "image/png",
+      "purpose": "maskable any"
+    },
+    {
+      "src": "/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Request a Ride",
+      "short_name": "Request",
+      "description": "Quickly request a taxi ride",
+      "url": "/ride/new",
+      "icons": [{ "src": "/icons/shortcut-ride.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "My Trips",
+      "short_name": "Trips",
+      "description": "View your trip history",
+      "url": "/trips",
+      "icons": [{ "src": "/icons/shortcut-trips.png", "sizes": "96x96" }]
+    },
+    {
+      "name": "Safety",
+      "short_name": "Safety",
+      "description": "Access safety features",
+      "url": "/safety",
+      "icons": [{ "src": "/icons/shortcut-safety.png", "sizes": "96x96" }]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/screenshots/home.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Home screen showing nearby taxis"
+    },
+    {
+      "src": "/screenshots/map.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Live map tracking your ride"
+    },
+    {
+      "src": "/screenshots/payment.png",
+      "sizes": "1080x1920",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Easy payment options"
+    }
+  ],
+  "related_applications": [],
+  "handle_links": "preferred",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "edge_side_panel": {
+    "preferred_width": 400
+  },
+  "display_override": ["window-controls-overlay", "standalone", "browser"],
+  "file_handlers": [],
+  "share_target": {
+    "action": "/share",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "protocol_handlers": [
+    {
+      "protocol": "web+boober",
+      "url": "/ride?id=%s"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "initialEmailDelay": 0,
+  "followUpCadence": [3, 7, 14],
+  "maxFollowUps": 3,
+  "workingHours": { "start": 9, "end": 17 },
+  "timezone": "Africa/Johannesburg",
+  "dailyTarget": 480,
+  "maxEmailsPerDay": 50,
+  "batchSize": 5
+}

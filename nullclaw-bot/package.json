@@ -1,0 +1,14 @@
+{
+  "name": "nullclaw-bot",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "node-telegram-bot-api": "^0.67.0"
+  }
+}

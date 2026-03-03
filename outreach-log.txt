@@ -1,0 +1,54 @@
+[2026-02-20T05:57:32.259Z] TO: sarah@techstartup.co.za
+SUBJECT: Data Extraction for Tech Startup - Free Consultation
+VALUE: R5000
+
+[2026-02-20T05:57:34.262Z] TO: john@shop.co.za
+SUBJECT: Process Automation for E-commerce Store - Free Consultation
+VALUE: R8000
+
+[2026-02-20T05:57:36.263Z] TO: lindiwe@agency.co.za
+SUBJECT: Lead Generation for Marketing Agency - Free Consultation
+VALUE: R6000
+
+[2026-02-20T05:57:38.264Z] TO: peter@food.co.za
+SUBJECT: Website Development for Restaurant Chain - Free Consultation
+VALUE: R15000
+
+[2026-02-20T05:57:40.266Z] TO: nomsa@finance.co.za
+SUBJECT: Data Analysis for Financial Services - Free Consultation
+VALUE: R12000
+
+[2026-02-20T06:00:24.179Z] TO: sarah@techstartup.co.za
+SUBJECT: Data Extraction for Tech Startup - Free Consultation
+VALUE: R5000
+
+[2026-02-20T06:00:26.180Z] TO: john@shop.co.za
+SUBJECT: Process Automation for E-commerce Store - Free Consultation
+VALUE: R8000
+
+[2026-02-20T06:00:28.181Z] TO: lindiwe@agency.co.za
+SUBJECT: Lead Generation for Marketing Agency - Free Consultation
+VALUE: R6000
+
+[2026-02-20T06:00:30.182Z] TO: peter@food.co.za
+SUBJECT: Website Development for Restaurant Chain - Free Consultation
+VALUE: R15000
+
+[2026-02-20T06:00:32.183Z] TO: nomsa@finance.co.za
+SUBJECT: Data Analysis for Financial Services - Free Consultation
+VALUE: R12000
+
+
+[2026-02-21T07:00:00.000Z] READY TO SEND - NEW LEADS VERIFIED
+============================================================
+MARKET ON MAIN: bradleykirshenbaum@me.com (VALUE: R11,500)
+ARTS ON MAIN: dimakatso@artsonmain.co.za (VALUE: R17,000)
+THE LIVING ROOM: events@livingroomjozi.co.za (VALUE: R9,000)
+CURIOSITY BACKPACKERS: yamkela@curiocityjoburg.com (VALUE: R15,000)
+DIFFERENTIAL CAPITAL: info@differential.co.za (VALUE: R42,500)
+MKHABELA HUNTLEY: norton@mhalaw.co.za (VALUE: R32,500)
+============================================================
+TOTAL NEW PIPELINE: R127,500
+UPWORK GIGS: $3,850 (~R72,000)
+GRAND TOTAL: R199,500
+
