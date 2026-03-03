@@ -1,6 +1,0 @@
-{
-  "dependencies": {
-    "node-telegram-bot-api": "^0.67.0",
-    "viem": "^2.46.2"
-  }
-}

@@ -1,1 +1,0 @@
-/home/workspace/.agents/skills/running-a-base-node/SKILL.md

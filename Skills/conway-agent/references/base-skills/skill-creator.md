@@ -1,1 +1,0 @@
-/home/workspace/.agents/skills/skill-creator/SKILL.md

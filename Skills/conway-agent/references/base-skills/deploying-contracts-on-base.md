@@ -1,1 +1,0 @@
-/home/workspace/.agents/skills/deploying-contracts-on-base/SKILL.md
