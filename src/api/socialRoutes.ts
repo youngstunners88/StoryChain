@@ -1,0 +1,598 @@
+// Social Features API Routes for StoryChain
+// Likes, follows, trending, and user interactions
+
+import type { Context } from 'hono';
+import { timingSafeEqual } from 'node:crypto';
+
+// Database connection
+let db: any = null;
+
+async function getDb() {
+  if (!db) {
+    const { Database } = await import('bun:sqlite');
+    db = new Database('/home/workspace/StoryChain/data/storychain.db');
+    db.run('PRAGMA foreign_keys = ON');
+  }
+  return db;
+}
+
+// Auth middleware
+async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
+  const auth = c.req.header('authorization');
+  if (!auth?.startsWith('Bearer ')) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  const token = auth.slice(7);
+  const expectedToken = process.env.ZO_CLIENT_IDENTITY_TOKEN;
+
+  if (!expectedToken) {
+    return c.json({ error: 'Server configuration error' }, 500);
+  }
+
+  const aBytes = Buffer.from(token);
+  const bBytes = Buffer.from(expectedToken);
+  if (aBytes.length !== bBytes.length) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  if (!timingSafeEqual(aBytes, bBytes)) {
+    return c.json({ error: 'Unauthorized' }, 401);
+  }
+
+  return { userId: 'user_' + token.slice(-16), email: 'user@storychain.local' };
+}
+
+// GET /api/stories - Feed with filters and pagination
+export async function getStories(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  try {
+    const { sort = 'newest', filter = 'all', page = '1', limit = '12', q, model } = c.req.query();
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+    const database = await getDb();
+
+    let whereClause = 'WHERE 1=1';
+    const params: any[] = [];
+
+    // Filter conditions
+    if (filter === 'completed') {
+      whereClause += ' AND s.is_completed = 1';
+    } else if (filter === 'ongoing') {
+      whereClause += ' AND s.is_completed = 0';
+    } else if (filter === 'my-stories') {
+      whereClause += ' AND s.author_id = ?';
+      params.push(auth.userId);
+    }
+
+    // Model filter
+    if (model && model !== 'all') {
+      whereClause += ' AND s.model_used = ?';
+      params.push(model);
+    }
+
+    // Search query
+    if (q) {
+      whereClause += ' AND (s.title LIKE ? OR s.content LIKE ?)';
+      params.push(`%${q}%`, `%${q}%`);
+    }
+
+    // Sort options
+    let orderBy = 's.created_at DESC';
+    if (sort === 'trending') {
+      orderBy = '(SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) * 2 + (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) DESC';
+    } else if (sort === 'most-liked') {
+      orderBy = '(SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) DESC';
+    } else if (sort === 'most-contributions') {
+      orderBy = '(SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) DESC';
+    }
+
+    // Main query
+    const query = `
+      SELECT 
+        s.*,
+        u.username as author_name,
+        (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) as contribution_count,
+        (SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) as like_count
+      FROM stories s
+      JOIN users u ON s.author_id = u.id
+      ${whereClause}
+      ORDER BY ${orderBy}
+      LIMIT ? OFFSET ?
+    `;
+
+    params.push(parseInt(limit), offset);
+
+    const stories = database.query(query).all(...params);
+
+    return c.json({
+      stories: stories.map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        content: s.content,
+        authorId: s.author_id,
+        authorName: s.author_name,
+        modelUsed: s.model_used,
+        characterCount: s.character_count,
+        tokensSpent: s.tokens_spent,
+        isCompleted: s.is_completed === 1,
+        contributionCount: s.contribution_count,
+        likeCount: s.like_count,
+        createdAt: s.created_at,
+        updatedAt: s.updated_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching stories:', error);
+    return c.json({ error: 'Failed to fetch stories' }, 500);
+  }
+}
+
+// GET /api/stories/:id - Get single story with details
+export async function getStory(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const storyId = c.req.param('id');
+  if (!storyId) {
+    return c.json({ error: 'Story ID required' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    // Get story with author info
+    const story = database.query(`
+      SELECT s.*, u.username as author_name
+      FROM stories s
+      JOIN users u ON s.author_id = u.id
+      WHERE s.id = ?
+    `).get(storyId);
+
+    if (!story) {
+      return c.json({ error: 'Story not found' }, 404);
+    }
+
+    // Get contributions with author info
+    const contributions = database.query(`
+      SELECT c.*, u.username as author_name
+      FROM contributions c
+      JOIN users u ON c.author_id = u.id
+      WHERE c.story_id = ?
+      ORDER BY c.created_at ASC
+    `).all(storyId);
+
+    // Get like count and user like status
+    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
+    const userLike = database.query('SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?').get(storyId, auth.userId);
+
+    // Check if following author
+    const isFollowing = database.query(
+      'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
+    ).get(auth.userId, story.author_id);
+
+    return c.json({
+      story: {
+        id: story.id,
+        title: story.title,
+        content: story.content,
+        authorId: story.author_id,
+        authorName: story.author_name,
+        modelUsed: story.model_used,
+        characterCount: story.character_count,
+        tokensSpent: story.tokens_spent,
+        isCompleted: story.is_completed === 1,
+        likes: likeCount?.count || 0,
+        userHasLiked: !!userLike,
+        isFollowingAuthor: !!isFollowing,
+        contributions: contributions.map((c: any) => ({
+          id: c.id,
+          storyId: c.story_id,
+          authorId: c.author_id,
+          authorName: c.author_name,
+          content: c.content,
+          modelUsed: c.model_used,
+          characterCount: c.character_count,
+          tokensSpent: c.tokens_spent,
+          createdAt: c.created_at,
+        })),
+        createdAt: story.created_at,
+        updatedAt: story.updated_at,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching story:', error);
+    return c.json({ error: 'Failed to fetch story' }, 500);
+  }
+}
+
+// POST /api/stories/:id/like - Like/unlike a story
+export async function likeStory(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const storyId = c.req.param('id');
+  if (!storyId) {
+    return c.json({ error: 'Story ID required' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    // Check if already liked
+    const existingLike = database.query(
+      'SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?'
+    ).get(storyId, auth.userId);
+
+    if (existingLike) {
+      // Unlike
+      database.run('DELETE FROM likes WHERE story_id = ? AND user_id = ?', [storyId, auth.userId]);
+    } else {
+      // Like
+      const likeId = `like_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      database.run(
+        'INSERT INTO likes (id, story_id, user_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+        [likeId, storyId, auth.userId]
+      );
+    }
+
+    // Get new like count
+    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
+
+    return c.json({
+      liked: !existingLike,
+      likes: likeCount?.count || 0,
+    });
+  } catch (error) {
+    console.error('Error liking story:', error);
+    return c.json({ error: 'Failed to like story' }, 500);
+  }
+}
+
+// POST /api/stories/:id/contributions - Add contribution
+export async function addContribution(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const storyId = c.req.param('id');
+  if (!storyId) {
+    return c.json({ error: 'Story ID required' }, 400);
+  }
+
+  try {
+    const body = await c.req.json();
+    const { content, modelUsed, characterCount, tokensSpent, maxCharacters } = body;
+
+    if (!content?.trim()) {
+      return c.json({ error: 'Content is required' }, 400);
+    }
+
+    if (content.length > maxCharacters) {
+      return c.json({ error: 'Content exceeds character limit' }, 400);
+    }
+
+    const database = await getDb();
+
+    // Verify story exists
+    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
+    if (!story) {
+      return c.json({ error: 'Story not found' }, 404);
+    }
+
+    // Check user tokens
+    const user = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId);
+    if (tokensSpent > 0 && user.tokens < tokensSpent) {
+      return c.json({ error: 'Insufficient tokens', code: 'INSUFFICIENT_TOKENS' }, 402);
+    }
+
+    // Deduct tokens
+    if (tokensSpent > 0) {
+      database.run('UPDATE users SET tokens = tokens - ? WHERE id = ?', [tokensSpent, auth.userId]);
+      
+      // Log transaction
+      const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      database.run(
+        'INSERT INTO token_transactions (id, user_id, amount, type, description, story_id) VALUES (?, ?, ?, ?, ?, ?)',
+        [txId, auth.userId, -tokensSpent, 'spend', 'Contribution to story', storyId]
+      );
+    }
+
+    // Create contribution
+    const contributionId = `contrib_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    database.run(
+      `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, tokens_spent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [contributionId, storyId, auth.userId, content.trim(), modelUsed, characterCount, tokensSpent]
+    );
+
+    // Get remaining tokens
+    const updatedUser = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId);
+
+    return c.json({
+      contribution: {
+        id: contributionId,
+        storyId,
+        authorId: auth.userId,
+        content: content.trim(),
+        modelUsed,
+        characterCount,
+        tokensSpent,
+        createdAt: new Date().toISOString(),
+      },
+      remainingTokens: updatedUser.tokens,
+    }, 201);
+  } catch (error) {
+    console.error('Error adding contribution:', error);
+    return c.json({ error: 'Failed to add contribution' }, 500);
+  }
+}
+
+// GET /api/users/:id - Get user profile
+export async function getUser(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const userId = c.req.param('id');
+  if (!userId) {
+    return c.json({ error: 'User ID required' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(userId);
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
+
+    // Get stats
+    const storiesCount = database.query('SELECT COUNT(*) as count FROM stories WHERE author_id = ?').get(userId);
+    const contributionsCount = database.query('SELECT COUNT(*) as count FROM contributions WHERE author_id = ?').get(userId);
+    const totalLikes = database.query(`
+      SELECT COUNT(*) as count FROM likes l
+      JOIN stories s ON l.story_id = s.id
+      WHERE s.author_id = ?
+    `).get(userId);
+    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId);
+    const followingCount = database.query('SELECT COUNT(*) as count FROM follows WHERE follower_id = ?').get(userId);
+
+    // Check if current user is following
+    const isFollowing = database.query(
+      'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
+    ).get(auth.userId, userId);
+
+    return c.json({
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        tokens: user.tokens,
+        preferredModel: user.preferred_model,
+        createdAt: user.created_at,
+        storiesCount: storiesCount?.count || 0,
+        contributionsCount: contributionsCount?.count || 0,
+        totalLikes: totalLikes?.count || 0,
+        followersCount: followersCount?.count || 0,
+        followingCount: followingCount?.count || 0,
+        isFollowing: !!isFollowing,
+        isCurrentUser: userId === auth.userId,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching user:', error);
+    return c.json({ error: 'Failed to fetch user' }, 500);
+  }
+}
+
+// GET /api/users/:id/stories - Get user's stories
+export async function getUserStories(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const userId = c.req.param('id');
+  if (!userId) {
+    return c.json({ error: 'User ID required' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    const stories = database.query(`
+      SELECT 
+        s.*,
+        (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) as contribution_count,
+        (SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) as like_count
+      FROM stories s
+      WHERE s.author_id = ?
+      ORDER BY s.created_at DESC
+    `).all(userId);
+
+    return c.json({
+      stories: stories.map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        content: s.content,
+        authorId: s.author_id,
+        modelUsed: s.model_used,
+        characterCount: s.character_count,
+        contributionCount: s.contribution_count,
+        likeCount: s.like_count,
+        createdAt: s.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching user stories:', error);
+    return c.json({ error: 'Failed to fetch stories' }, 500);
+  }
+}
+
+// GET /api/users/:id/contributions - Get user's contributions
+export async function getUserContributions(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const userId = c.req.param('id');
+  if (!userId) {
+    return c.json({ error: 'User ID required' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    const contributions = database.query(`
+      SELECT c.*, s.title as story_title
+      FROM contributions c
+      JOIN stories s ON c.story_id = s.id
+      WHERE c.author_id = ?
+      ORDER BY c.created_at DESC
+    `).all(userId);
+
+    return c.json({
+      stories: contributions.map((c: any) => ({
+        id: c.story_id,
+        title: c.story_title,
+        content: c.content,
+        authorId: c.author_id,
+        modelUsed: c.model_used,
+        createdAt: c.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching user contributions:', error);
+    return c.json({ error: 'Failed to fetch contributions' }, 500);
+  }
+}
+
+// GET /api/users/:id/liked - Get stories liked by user
+export async function getUserLikedStories(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const userId = c.req.param('id');
+  if (!userId) {
+    return c.json({ error: 'User ID required' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    const stories = database.query(`
+      SELECT 
+        s.*,
+        u.username as author_name,
+        (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) as contribution_count
+      FROM stories s
+      JOIN likes l ON s.id = l.story_id
+      JOIN users u ON s.author_id = u.id
+      WHERE l.user_id = ?
+      ORDER BY l.created_at DESC
+    `).all(userId);
+
+    return c.json({
+      stories: stories.map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        content: s.content,
+        authorId: s.author_id,
+        authorName: s.author_name,
+        modelUsed: s.model_used,
+        contributionCount: s.contribution_count,
+        createdAt: s.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching liked stories:', error);
+    return c.json({ error: 'Failed to fetch liked stories' }, 500);
+  }
+}
+
+// POST /api/users/:id/follow - Follow/unfollow a user
+export async function followUser(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const userId = c.req.param('id');
+  if (!userId) {
+    return c.json({ error: 'User ID required' }, 400);
+  }
+
+  if (userId === auth.userId) {
+    return c.json({ error: 'Cannot follow yourself' }, 400);
+  }
+
+  try {
+    const database = await getDb();
+
+    // Check if already following
+    const existingFollow = database.query(
+      'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
+    ).get(auth.userId, userId);
+
+    if (existingFollow) {
+      // Unfollow
+      database.run('DELETE FROM follows WHERE follower_id = ? AND following_id = ?', [auth.userId, userId]);
+    } else {
+      // Follow
+      const followId = `follow_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      database.run(
+        'INSERT INTO follows (id, follower_id, following_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+        [followId, auth.userId, userId]
+      );
+    }
+
+    // Get new follower count
+    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId);
+
+    return c.json({
+      following: !existingFollow,
+      followersCount: followersCount?.count || 0,
+    });
+  } catch (error) {
+    console.error('Error following user:', error);
+    return c.json({ error: 'Failed to follow user' }, 500);
+  }
+}
+
+// GET /api/trending - Get trending stories
+export async function getTrending(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  try {
+    const database = await getDb();
+
+    // Get stories from last 7 days, ordered by engagement
+    const stories = database.query(`
+      SELECT 
+        s.*,
+        u.username as author_name,
+        (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) as contribution_count,
+        (SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) as like_count,
+        ((SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) * 2 + 
+         (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id)) as score
+      FROM stories s
+      JOIN users u ON s.author_id = u.id
+      WHERE s.created_at > datetime('now', '-7 days')
+      ORDER BY score DESC
+      LIMIT 10
+    `).all();
+
+    return c.json({
+      stories: stories.map((s: any) => ({
+        id: s.id,
+        title: s.title,
+        content: s.content,
+        authorId: s.author_id,
+        authorName: s.author_name,
+        modelUsed: s.model_used,
+        contributionCount: s.contribution_count,
+        likeCount: s.like_count,
+        createdAt: s.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching trending:', error);
+    return c.json({ error: 'Failed to fetch trending stories' }, 500);
+  }
+}
