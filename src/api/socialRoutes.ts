@@ -82,15 +82,17 @@ export async function getStories(c: Context) {
       params.push(`%${q}%`, `%${q}%`);
     }
 
-    // Sort options
-    let orderBy = 's.created_at DESC';
-    if (sort === 'trending') {
-      orderBy = '(SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) * 2 + (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) DESC';
-    } else if (sort === 'most-liked') {
-      orderBy = '(SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) DESC';
-    } else if (sort === 'most-contributions') {
-      orderBy = '(SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) DESC';
-    }
+    // Sort options - WHITELIST VALIDATION to prevent SQL injection
+    const VALID_SORT_COLUMNS: Record<string, string> = {
+      'newest': 's.created_at DESC',
+      'oldest': 's.created_at ASC',
+      'trending': '(SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) * 2 + (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) DESC',
+      'most-liked': '(SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) DESC',
+      'most-contributions': '(SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) DESC',
+    };
+
+    // Validate sort parameter against whitelist
+    const orderBy = VALID_SORT_COLUMNS[sort] || VALID_SORT_COLUMNS['newest'];
 
     // Main query
     const query = `
