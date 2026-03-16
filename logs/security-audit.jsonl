@@ -1,0 +1,5 @@
+{"severity":"high","category":"SQL Injection","description":"Potential SQL injection in socialRoutes.ts - uses template literals in queries","file":"socialRoutes.ts","recommendation":"Use parameterized queries only, never string interpolation"}
+{"severity":"high","category":"SQL Injection","description":"Potential SQL injection in routes.ts - uses template literals in queries","file":"routes.ts","recommendation":"Use parameterized queries only, never string interpolation"}
+{"severity":"high","category":"SQL Injection","description":"Potential SQL injection in tokenRoutes.ts - uses template literals in queries","file":"tokenRoutes.ts","recommendation":"Use parameterized queries only, never string interpolation"}
+{"severity":"medium","category":"Token Storage","description":"No dedicated API tokens table found","recommendation":"Create encrypted token storage with expiration"}
+{"severity":"medium","category":"CORS","description":"Wildcard CORS origin detected","file":"server.ts","recommendation":"Restrict CORS to specific origins in production"}
