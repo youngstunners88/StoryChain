@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, AlertCircle, Check, Save, RefreshCw, ExternalLink } from 'lucide-react';
+import { Settings as SettingsIcon, Key, AlertCircle, Check, Save, RefreshCw, ExternalLink, LogOut } from 'lucide-react';
 import { ModelSelector } from '../components/ModelSelector';
 import { LLMModel } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 interface ApiKeyConfig {
   key: string;
@@ -56,6 +57,7 @@ const API_KEYS: ApiKeyConfig[] = [
 ];
 
 export const Settings: React.FC = () => {
+  const { fetchWithAuth, logout, token } = useAuth();
   const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
   const [keyStatus, setKeyStatus] = useState<Record<string, boolean>>({});
   const [preferredModel, setPreferredModel] = useState<LLMModel>('kimi-k2.5');
@@ -70,18 +72,18 @@ export const Settings: React.FC = () => {
 
   const loadSettings = async () => {
     try {
-      const response = await fetch('/api/user/settings');
+      const response = await fetchWithAuth('/api/user/settings');
       const data = await response.json();
-      
+
       if (data.settings) {
         setPreferredModel(data.settings.preferredModel || 'kimi-k2.5');
         setAutoPurchase(data.settings.autoPurchaseExtensions || false);
       }
 
       // Get current API key status
-      const statusResponse = await fetch('/api/llm/validate-keys');
+      const statusResponse = await fetchWithAuth('/api/llm/validate-keys');
       const statusData = await statusResponse.json();
-      
+
       const statusMap: Record<string, boolean> = {};
       statusData.keys.forEach((k: { key: string; valid: boolean }) => {
         statusMap[k.key] = k.valid;
@@ -103,9 +105,8 @@ export const Settings: React.FC = () => {
       const keyPromises = Object.entries(apiKeys)
         .filter(([, value]) => value.trim())
         .map(([key, value]) =>
-          fetch('/api/settings/api-keys', {
+          fetchWithAuth('/api/settings/api-keys', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ key, value: value.trim() }),
           })
         );
@@ -113,9 +114,8 @@ export const Settings: React.FC = () => {
       await Promise.all(keyPromises);
 
       // Save user preferences
-      await fetch('/api/user/settings', {
+      await fetchWithAuth('/api/user/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           preferredModel,
           autoPurchaseExtensions: autoPurchase,
@@ -123,7 +123,7 @@ export const Settings: React.FC = () => {
       });
 
       setMessage({ type: 'success', text: 'Settings saved successfully!' });
-      
+
       // Refresh key status
       await loadSettings();
     } catch (error) {
@@ -149,14 +149,23 @@ export const Settings: React.FC = () => {
     <div className="min-h-screen bg-zinc-950 py-8 px-4">
       <div className="max-w-2xl mx-auto space-y-8">
         {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-amber-500/10 rounded-xl">
-            <SettingsIcon className="w-6 h-6 text-amber-500" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-3 bg-amber-500/10 rounded-xl">
+              <SettingsIcon className="w-6 h-6 text-amber-500" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-100">Settings</h1>
+              <p className="text-zinc-500">Configure your StoryChain experience</p>
+            </div>
           </div>
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-100">Settings</h1>
-            <p className="text-zinc-500">Configure your StoryChain experience</p>
-          </div>
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Sign Out
+          </button>
         </div>
 
         {/* Status message */}
@@ -179,6 +188,17 @@ export const Settings: React.FC = () => {
           </div>
         )}
 
+        {/* Current Token Display */}
+        <section className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
+          <h2 className="text-lg font-semibold text-zinc-200 mb-2">Authentication</h2>
+          <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800">
+            <p className="text-xs text-zinc-500 mb-1">Current Token (last 20 chars)</p>
+            <code className="text-sm text-zinc-400 font-mono">
+              ...{token?.slice(-20) || 'Not available'}
+            </code>
+          </div>
+        </section>
+
         {/* API Keys Section */}
         <section className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
           <div className="p-6 border-b border-zinc-800">
@@ -187,7 +207,7 @@ export const Settings: React.FC = () => {
               <h2 className="text-lg font-semibold text-zinc-200">API Keys</h2>
             </div>
             <p className="mt-1 text-sm text-zinc-500">
-              Add your API keys to unlock more AI models. Keys are stored securely in Settings {'>'} Advanced.
+              Add your API keys to unlock more AI models. Keys are stored securely in Settings &gt; Advanced.
             </p>
           </div>
 

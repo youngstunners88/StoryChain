@@ -1,15 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { PenTool, Send, AlertCircle, RefreshCw, Coins, ArrowRight } from 'lucide-react';
+import { PenTool, Send, AlertCircle, RefreshCw, Coins, ArrowRight, User } from 'lucide-react';
 import { ModelSelector } from '../components/ModelSelector';
 import { CharacterSlider } from '../components/CharacterSlider';
 import { LLMModel, Story, DEFAULT_CHARACTER_EXTENSION } from '../types';
+import { useAuth } from '../context/AuthContext';
 
 export const CreateStory: React.FC = () => {
+  const { fetchWithAuth, isAuthenticated, isLoading: authLoading } = useAuth();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [selectedModel, setSelectedModel] = useState<LLMModel>('kimi-k2.5');
   const [maxCharacters, setMaxCharacters] = useState(DEFAULT_CHARACTER_EXTENSION.baseCharacters);
-  const [tokens, setTokens] = useState(0);
+  const [tokens, setTokens] = useState(1000); // Default for guests
   const [autoPurchase, setAutoPurchase] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -17,22 +19,39 @@ export const CreateStory: React.FC = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    loadUserData();
-  }, []);
+    if (isAuthenticated) {
+      loadUserData();
+    } else {
+      // Clear errors and set guest defaults
+      setError(null);
+      setLoading(false);
+    }
+  }, [isAuthenticated]);
 
   const loadUserData = async () => {
     try {
-      const response = await fetch('/api/user/profile');
-      const data = await response.json();
+      const response = await fetchWithAuth('/api/user/profile');
       
+      if (!response.ok) {
+        // If auth fails, treat as guest and clear any errors
+        setError(null);
+        setLoading(false);
+        return;
+      }
+
+      const data = await response.json();
+
       if (data.user) {
-        setTokens(data.user.tokens || 0);
+        setTokens(data.user.tokens || 1000);
         setSelectedModel(data.user.preferredModel || 'kimi-k2.5');
         setAutoPurchase(data.user.autoPurchaseExtensions || false);
       }
+      // Clear any previous errors on successful load
+      setError(null);
     } catch (error) {
       console.error('Failed to load user data:', error);
-      setError('Failed to load user data');
+      // Don't show error - just use defaults and clear error state
+      setError(null);
     } finally {
       setLoading(false);
     }
@@ -47,11 +66,19 @@ export const CreateStory: React.FC = () => {
 
   const canSubmit = (): { valid: boolean; reason?: string } => {
     if (!title.trim()) return { valid: false, reason: 'Please enter a title' };
-    if (!content.trim()) return { valid: false, reason: 'Please enter content' };
+    if (!content.trim()) return { valid: false, reason: 'Please enter your story content' };
     if (content.length > maxCharacters) {
       return {
         valid: false,
         reason: `Content exceeds ${maxCharacters} character limit (${content.length} chars)`,
+      };
+    }
+
+    // Check auth
+    if (!isAuthenticated) {
+      return {
+        valid: false,
+        reason: 'Please add your API token in Settings > Advanced to publish stories',
       };
     }
 
@@ -77,9 +104,8 @@ export const CreateStory: React.FC = () => {
     setError(null);
 
     try {
-      const response = await fetch('/api/stories', {
+      const response = await fetchWithAuth('/api/stories', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: title.trim(),
           content: content.trim(),
@@ -97,10 +123,12 @@ export const CreateStory: React.FC = () => {
 
       const data = await response.json();
       setCreatedStory(data.story);
-      
+
       // Refresh token balance
-      await loadUserData();
-      
+      if (isAuthenticated) {
+        await loadUserData();
+      }
+
       // Reset form
       setTitle('');
       setContent('');
@@ -115,7 +143,7 @@ export const CreateStory: React.FC = () => {
   const tokensNeeded = calculateTokensNeeded();
   const validation = canSubmit();
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
         <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
@@ -177,12 +205,34 @@ export const CreateStory: React.FC = () => {
               <p className="text-zinc-500">Share your tale with the community</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 rounded-lg border border-zinc-800">
-            <Coins className="w-4 h-4 text-amber-400" />
-            <span className="font-medium text-zinc-300">{tokens}</span>
-            <span className="text-xs text-zinc-500">tokens</span>
+          <div className={`flex items-center gap-2 px-4 py-2 rounded-lg border ${isAuthenticated ? 'bg-zinc-900 border-zinc-800' : 'bg-amber-500/10 border-amber-500/30'}`}>
+            {isAuthenticated ? (
+              <>
+                <Coins className="w-4 h-4 text-amber-400" />
+                <span className="font-medium text-zinc-300">{tokens}</span>
+                <span className="text-xs text-zinc-500">tokens</span>
+              </>
+            ) : (
+              <>
+                <User className="w-4 h-4 text-amber-400" />
+                <span className="text-sm text-amber-400">Guest Mode</span>
+              </>
+            )}
           </div>
         </div>
+
+        {/* Guest Mode Notice */}
+        {!isAuthenticated && (
+          <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+            <p className="text-sm text-amber-400">
+              <strong>Welcome, Guest!</strong> You can explore and draft stories, but you&apos;ll need to add your API token in{' '}
+              <a href="https://kofi.zo.computer/?t=settings&s=advanced" className="underline hover:text-amber-300">
+                Settings &gt; Advanced
+              </a>{' '}
+              to publish.
+            </p>
+          </div>
+        )}
 
         {/* Error */}
         {error && (
@@ -257,7 +307,7 @@ export const CreateStory: React.FC = () => {
               tokens={tokens}
               autoPurchase={autoPurchase}
               onAutoPurchaseChange={setAutoPurchase}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !isAuthenticated}
             />
           </div>
 

@@ -43,10 +43,14 @@ async function requireAuth(c: Context): Promise<{ userId: string; email: string 
   return { userId: 'user_' + token.slice(-16), email: 'user@storychain.local' };
 }
 
-// GET /api/stories - Feed with filters and pagination
+// GET /api/stories - Feed with filters and pagination (PUBLIC - no auth required)
 export async function getStories(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  // Try to get auth, but don't require it
+  let auth: { userId: string; email: string } | null = null;
+  const authResult = await requireAuth(c);
+  if (!(authResult instanceof Response)) {
+    auth = authResult;
+  }
 
   try {
     const { sort = 'newest', filter = 'all', page = '1', limit = '12', q, model } = c.req.query();
@@ -61,7 +65,7 @@ export async function getStories(c: Context) {
       whereClause += ' AND s.is_completed = 1';
     } else if (filter === 'ongoing') {
       whereClause += ' AND s.is_completed = 0';
-    } else if (filter === 'my-stories') {
+    } else if (filter === 'my-stories' && auth) {
       whereClause += ' AND s.author_id = ?';
       params.push(auth.userId);
     }
@@ -104,7 +108,13 @@ export async function getStories(c: Context) {
 
     params.push(parseInt(limit), offset);
 
-    const stories = database.query(query).all(...params);
+    let stories = database.query(query).all(...params);
+
+    // If no stories exist, create demo stories
+    if (stories.length === 0 && parseInt(page) === 1) {
+      await createDemoStories(database);
+      stories = database.query(query).all(...params);
+    }
 
     return c.json({
       stories: stories.map((s: any) => ({
@@ -129,10 +139,63 @@ export async function getStories(c: Context) {
   }
 }
 
+// Helper function to create demo stories
+async function createDemoStories(database: any) {
+  const demoStories = [
+    {
+      id: 'demo_001',
+      title: 'The Last Library',
+      content: 'In a world where digital archives had replaced every book, Maya discovered a hidden cellar beneath the old university. Dust motes danced in the sliver of light from her flashlight, illuminating shelves that stretched into darkness. The smell of paper and binding glue hit her like a memory from a childhood she never had. She reached for the nearest spine, hands trembling...',
+      author: 'DemoUser',
+      model: 'kimi-k2.5',
+    },
+    {
+      id: 'demo_002',
+      title: 'Echoes of Tomorrow',
+      content: 'The time machine hummed to life, its quantum coils glowing with a light that shouldn\'t exist in three dimensions. Dr. Chen checked her watch one last time. 11:59 PM, December 31st, 2024. In sixty seconds, she would either prove her theories correct or disappear from history entirely. The countdown began...',
+      author: 'StoryWeaver',
+      model: 'gemini-pro',
+    },
+    {
+      id: 'demo_003',
+      title: 'Midnight at the Café',
+      content: 'They say the Coffee Ghost only appears to those who truly need guidance. At 3:33 AM, when the espresso machine gurgles its last drops, a silhouette forms in the steam. Tonight, it materialized for Marcus, a failed musician with nothing left but a guitar and a broken dream. "Play," the ghost whispered...',
+      author: 'NarrativeCraft',
+      model: 'llama-3.1',
+    },
+  ];
+
+  for (const story of demoStories) {
+    // Check if demo story already exists
+    const existing = database.query('SELECT 1 FROM stories WHERE id = ?').get(story.id);
+    if (!existing) {
+      // Create demo user if not exists
+      const demoUserId = `user_${story.author.toLowerCase()}`;
+      const userExists = database.query('SELECT 1 FROM users WHERE id = ?').get(demoUserId);
+      if (!userExists) {
+        database.run(
+          'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
+          [demoUserId, story.author, `${story.author.toLowerCase()}@demo.local`, 'kimi-k2.5']
+        );
+      }
+
+      database.run(
+        `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [story.id, story.title, story.content, demoUserId, story.model, story.content.length, 0]
+      );
+    }
+  }
+}
+
 // GET /api/stories/:id - Get single story with details
 export async function getStory(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  // Try to get auth, but don't require it
+  let auth: { userId: string; email: string } | null = null;
+  const authResult = await requireAuth(c);
+  if (!(authResult instanceof Response)) {
+    auth = authResult;
+  }
 
   const storyId = c.req.param('id');
   if (!storyId) {
@@ -165,12 +228,12 @@ export async function getStory(c: Context) {
 
     // Get like count and user like status
     const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
-    const userLike = database.query('SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?').get(storyId, auth.userId);
+    const userLike = database.query('SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?').get(storyId, auth?.userId);
 
     // Check if following author
     const isFollowing = database.query(
       'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
-    ).get(auth.userId, story.author_id);
+    ).get(auth?.userId, story.author_id);
 
     return c.json({
       story: {
@@ -554,10 +617,14 @@ export async function followUser(c: Context) {
   }
 }
 
-// GET /api/trending - Get trending stories
+// GET /api/trending - Get trending stories (PUBLIC - no auth required)
 export async function getTrending(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  // Try to get auth, but don't require it
+  let auth: { userId: string; email: string } | null = null;
+  const authResult = await requireAuth(c);
+  if (!(authResult instanceof Response)) {
+    auth = authResult;
+  }
 
   try {
     const database = await getDb();

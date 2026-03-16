@@ -30,10 +30,26 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   const fetchApiKeyStatus = async () => {
     try {
       const response = await fetch('/api/llm/validate-keys');
+      
+      // Handle unauthorized gracefully - treat as guest mode
+      if (response.status === 401 || response.status === 403) {
+        setApiKeyStatus([]);
+        return;
+      }
+      
+      if (!response.ok) {
+        // Other errors - still don't show to user, just log
+        console.warn('API key status fetch failed:', response.status);
+        setApiKeyStatus([]);
+        return;
+      }
+      
       const data = await response.json();
       setApiKeyStatus(data.keys || []);
     } catch (error) {
-      console.error('Failed to fetch API key status:', error);
+      // Silently fail for guests - don't show errors
+      console.log('API key check skipped (guest mode or error):', error);
+      setApiKeyStatus([]);
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Coins, CreditCard, Gift, Zap, Check, AlertCircle, RefreshCw, ArrowLeft, Sparkles, Crown } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
 interface TokenPackage {
   id: string;
@@ -25,6 +26,7 @@ interface Transaction {
 }
 
 export const TokenStore: React.FC = () => {
+  const { fetchWithAuth } = useAuth();
   const [balance, setBalance] = useState(0);
   const [selectedPackage, setSelectedPackage] = useState<TokenPackage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,8 +42,8 @@ export const TokenStore: React.FC = () => {
   const loadUserData = async () => {
     try {
       const [profileRes, txRes] = await Promise.all([
-        fetch('/api/user/profile'),
-        fetch('/api/user/transactions'),
+        fetchWithAuth('/api/user/profile'),
+        fetchWithAuth('/api/user/transactions'),
       ]);
 
       if (profileRes.ok) {
@@ -67,11 +69,8 @@ export const TokenStore: React.FC = () => {
     setMessage(null);
 
     try {
-      // In a real app, this would integrate with Stripe
-      // For now, we'll simulate a successful purchase
-      const response = await fetch('/api/tokens/purchase', {
+      const response = await fetchWithAuth('/api/tokens/purchase', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           packageId: selectedPackage.id,
           tokens: selectedPackage.tokens + selectedPackage.bonus,
@@ -105,9 +104,9 @@ export const TokenStore: React.FC = () => {
 
   const getFreeTokens = async () => {
     try {
-      const response = await fetch('/api/tokens/free', {
+      const response = await fetchWithAuth('/api/tokens/free', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
 
       if (!response.ok) {

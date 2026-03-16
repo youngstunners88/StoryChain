@@ -56,9 +56,9 @@ export async function getUserSettings(c: Context) {
     const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
 
     if (!user) {
-      // Create default user
+      // Create default user with 1000 free tokens (not 100)
       database.run(
-        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 100, ?, ?)',
+        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
       
@@ -66,7 +66,7 @@ export async function getUserSettings(c: Context) {
         settings: {
           preferredModel: 'kimi-k2.5',
           autoPurchaseExtensions: false,
-          tokens: 100,
+          tokens: 1000,  // Updated from 100
         },
       });
     }
@@ -123,9 +123,9 @@ export async function getUserProfile(c: Context) {
     let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
 
     if (!user) {
-      // Create default user
+      // Create default user with 1000 free tokens (not 100)
       database.run(
-        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 100, ?, ?)',
+        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
       user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
@@ -241,10 +241,10 @@ export async function createStory(c: Context) {
     let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
     if (!user) {
       database.run(
-        'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 100, ?)',
+        'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5']
       );
-      user = { tokens: 100 };
+      user = { tokens: 1000 };
     }
 
     if (tokensSpent > user.tokens) {

@@ -3,7 +3,8 @@ import { useParams } from '../utils/useParams';
 import { ArrowLeft, Heart, MessageCircle, Share2, Clock, User, Sparkles, Send, AlertCircle, RefreshCw, Coins } from 'lucide-react';
 import { ModelSelector } from '../components/ModelSelector';
 import { CharacterSlider } from '../components/CharacterSlider';
-import type { Story, Contribution, LLMModel, DEFAULT_CHARACTER_EXTENSION } from '../types';
+import { useAuth } from '../context/AuthContext';
+import type { Story, Contribution, LLMModel } from '../types';
 
 interface StoryWithDetails extends Story {
   authorName: string;
@@ -19,6 +20,7 @@ interface ContributionWithAuthor extends Contribution {
 
 export const StoryView: React.FC = () => {
   const { id } = useParams();
+  const { fetchWithAuth } = useAuth();
   const [story, setStory] = useState<StoryWithDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +42,7 @@ export const StoryView: React.FC = () => {
   const fetchStory = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/stories/${id}`);
+      const response = await fetchWithAuth(`/api/stories/${id}`);
       if (!response.ok) throw new Error('Failed to fetch story');
       
       const data = await response.json();
@@ -58,9 +60,9 @@ export const StoryView: React.FC = () => {
     if (!story) return;
     
     try {
-      const response = await fetch(`/api/stories/${story.id}/like`, {
+      const response = await fetchWithAuth(`/api/stories/${story.id}/like`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
       
       if (response.ok) {
@@ -76,9 +78,9 @@ export const StoryView: React.FC = () => {
     if (!story) return;
     
     try {
-      const response = await fetch(`/api/users/${story.authorId}/follow`, {
+      const response = await fetchWithAuth(`/api/users/${story.authorId}/follow`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
       
       if (response.ok) {
@@ -139,9 +141,8 @@ export const StoryView: React.FC = () => {
     setSubmitError(null);
 
     try {
-      const response = await fetch(`/api/stories/${story.id}/contributions`, {
+      const response = await fetchWithAuth(`/api/stories/${story.id}/contributions`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           content: contributionContent.trim(),
           modelUsed: selectedModel,
@@ -317,7 +318,7 @@ export const StoryView: React.FC = () => {
               Contributions ({story.contributions.length})
             </h2>
 
-            {story.contributions.map((contribution, index) => (
+            {story.contributions.map((contribution) => (
               <div
                 key={contribution.id}
                 className="bg-zinc-900 rounded-xl border border-zinc-800 p-5"

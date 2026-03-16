@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from '../utils/useParams';
 import { User, BookOpen, Heart, Users, Calendar, TrendingUp, ArrowLeft, Check, Plus } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 import type { Story, LLMModel } from '../types';
 
 interface UserProfileData {
@@ -23,6 +24,7 @@ interface UserStory extends Story {
 
 export const UserProfile: React.FC = () => {
   const { id } = useParams();
+  const { fetchWithAuth } = useAuth();
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [stories, setStories] = useState<UserStory[]>([]);
   const [activeTab, setActiveTab] = useState<'stories' | 'contributions' | 'likes'>('stories');
@@ -40,7 +42,7 @@ export const UserProfile: React.FC = () => {
   const fetchProfile = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/users/${id}`);
+      const response = await fetchWithAuth(`/api/users/${id}`);
       if (!response.ok) throw new Error('Failed to fetch profile');
       
       const data = await response.json();
@@ -63,7 +65,7 @@ export const UserProfile: React.FC = () => {
           ? `/api/users/${profile.id}/contributions`
           : `/api/users/${profile.id}/liked`;
           
-      const response = await fetch(endpoint);
+      const response = await fetchWithAuth(endpoint);
       if (!response.ok) throw new Error(`Failed to fetch ${activeTab}`);
       
       const data = await response.json();
@@ -77,9 +79,9 @@ export const UserProfile: React.FC = () => {
     if (!profile || profile.isCurrentUser) return;
     
     try {
-      const response = await fetch(`/api/users/${profile.id}/follow`, {
+      const response = await fetchWithAuth(`/api/users/${profile.id}/follow`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
       });
       
       if (response.ok) {

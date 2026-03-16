@@ -47,9 +47,10 @@ const app = new Hono();
 app.use(secureHeaders({
   contentSecurityPolicy: {
     defaultSrc: ["'self'"],
-    scriptSrc: ["'self'", "'unsafe-inline'"],
-    styleSrc: ["'self'", "'unsafe-inline'"],
+    scriptSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com", "https://unpkg.com"],
+    styleSrc: ["'self'", "'unsafe-inline'", "https://cdn.tailwindcss.com"],
     imgSrc: ["'self'", "data:", "https:"],
+    connectSrc: ["'self'", "https://openrouter.ai"],
   },
   xFrameOptions: 'DENY',
   xContentTypeOptions: 'nosniff',
@@ -107,14 +108,9 @@ app.get('/api/tokens/packages', rateLimitMiddleware(rateLimiters.general), getTo
 app.post('/api/tokens/purchase', rateLimitMiddleware(rateLimiters.createStory), purchaseTokens);
 app.post('/api/tokens/free', rateLimitMiddleware(rateLimiters.general), claimFreeTokens);
 
-// 404 handler
-app.notFound((c) => {
-  return c.json({
-    error: 'Not found',
-    code: 'NOT_FOUND',
-    path: c.req.path,
-  }, 404);
-});
+// Static file serving - serve index.html for SPA routes
+app.get('/', serveStatic({ path: './index.html' }));
+app.get('*', serveStatic({ path: './index.html' }));
 
 // Error handler
 app.onError((err, c) => {
