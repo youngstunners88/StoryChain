@@ -2,202 +2,190 @@
 
 A multi-LLM collaborative storytelling platform where users create stories and contribute to community tales using various AI models.
 
-## Features Built
+## 🚀 Features
 
-### 1. Story Feed/Browse Page (`src/pages/StoryFeed.tsx`)
-- **Discover stories** from the community
-- **Filter by**: All, Completed, Ongoing, My Stories
-- **Sort by**: Newest, Trending, Most Liked, Most Contributions
-- **Search** by title and content
-- **Model filter** to find stories by AI model used
-- **Infinite scroll** pagination
-- **Story cards** with preview, author, likes, and contribution counts
+### Core Features
+- **Multi-LLM Support** - Choose from 8 different AI models including Kimi, Llama, Gemini, and more
+- **Story Feed** - Browse, search, and filter stories from the community
+- **Collaborative Writing** - Add contributions to existing stories
+- **Social Features** - Like stories, follow authors, trending algorithm
+- **Token Economy** - Character-based pricing with daily free tokens
+- **Responsive Design** - Works on desktop and mobile
 
-### 2. Story View Page (`src/pages/StoryView.tsx`)
-- **Read full stories** with all contributions
-- **Add contributions** to existing stories
-- **Like/unlike stories** with real-time count updates
-- **Follow authors** directly from story page
-- **Share stories** via native share or clipboard
-- **Character extension system** for contributions
-- **Model selector** for contributions
+### AI Models Supported
+| Model | Provider | Free Tier |
+|-------|----------|-----------|
+| Kimi K2.5 | Zo | ✅ Yes |
+| Llama 3.1 | Groq | ✅ Yes |
+| Gemma 2 | Groq | ✅ Yes |
+| Mixtral 8x7B | Groq | ✅ Yes |
+| Gemini Pro | Google | ✅ Yes |
+| Reka Edge | OpenRouter | ❌ No |
+| Qwen 2.5 | OpenRouter | ❌ No |
+| Mercury 2 | Inception | ❌ No |
 
-### 3. User Profiles (`src/pages/UserProfile.tsx`)
-- **User stats**: Stories count, contributions count, total likes, followers/following
-- **Tab navigation**: Stories | Contributions | Liked
-- **Follow/unfollow** functionality
-- **Avatar** with user initial
-- **Story cards** in profile view
+## 🛠️ Quick Start
 
-### 4. Token Store (`src/pages/TokenStore.tsx`)
-- **Token packages**: Starter (100), Popular (500+50 bonus), Pro (1000+150 bonus), Unlimited (5000+1000 bonus)
-- **Current balance** display
-- **Daily free tokens**: Claim 50 tokens every 24 hours
-- **Transaction history**: Full audit trail of purchases, spends, and bonuses
-- **Purchase simulation** (Stripe integration ready)
-- **How it works** explanation section
+### Prerequisites
+- [Bun](https://bun.sh) 1.0+ (recommended) or Node.js 18+
+- SQLite3
 
-### 5. Social Features
-- **Likes system**: Users can like/unlike stories
-- **Follows system**: Follow/unfollow other users
-- **Trending algorithm**: Stories ranked by engagement (likes + contributions) from last 7 days
-- **Feed personalization**: Filter by followed users (ready for implementation)
+### Installation
 
-## API Endpoints Added
-
-### Social Routes (`src/api/socialRoutes.ts`)
-```
-GET    /api/stories                     # Feed with filters, sort, pagination
-GET    /api/stories/:id                 # Single story with contributions
-POST   /api/stories/:id/like            # Like/unlike a story
-POST   /api/stories/:id/contributions   # Add contribution to story
-GET    /api/users/:id                   # User profile
-GET    /api/users/:id/stories           # User's stories
-GET    /api/users/:id/contributions     # User's contributions
-GET    /api/users/:id/liked             # Stories liked by user
-POST   /api/users/:id/follow            # Follow/unfollow user
-GET    /api/trending                    # Trending stories
-```
-
-### Token Routes (`src/api/tokenRoutes.ts`)
-```
-GET    /api/tokens/packages             # Available token packages
-POST   /api/tokens/purchase             # Purchase tokens
-POST   /api/tokens/free                 # Claim daily free tokens
-GET    /api/user/transactions           # Transaction history
-```
-
-## Database Schema Updates
-
-### Social Features Tables (Migration v3)
-```sql
--- Likes
-CREATE TABLE likes (
-    id TEXT PRIMARY KEY,
-    story_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(story_id, user_id)
-);
-
--- Follows
-CREATE TABLE follows (
-    id TEXT PRIMARY KEY,
-    follower_id TEXT NOT NULL,
-    following_id TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(follower_id, following_id)
-);
-```
-
-## Components Created
-
-### Reusable Components
-- `ModelSelector` - Select AI model with availability checking
-- `CharacterSlider` - Character limit with token cost calculation
-
-### Utilities
-- `useParams` - URL parameter extraction for routing
-- `formatDate` - Human-readable date formatting
-- `getModelColor` - Consistent model badge colors
-
-## Architecture
-
-### Frontend
-- React 18 with hooks
-- Tailwind CSS for styling
-- Hash-based routing for SPA navigation
-- Component-based architecture
-
-### Backend
-- Hono framework for API
-- SQLite/Bun:sqlite for database
-- Bearer token authentication
-- Rate limiting per endpoint
-- Error handling and logging
-
-### Token Economy
-- **Base**: 300 characters free
-- **Extensions**: 100 characters per extension
-- **Cost**: 5 tokens per extension
-- **Max**: 800 total characters (5 extensions)
-
-## File Structure
-```
-StoryChain/
-├── src/
-│   ├── pages/              # Page components
-│   │   ├── StoryFeed.tsx
-│   │   ├── StoryView.tsx
-│   │   ├── UserProfile.tsx
-│   │   ├── TokenStore.tsx
-│   │   ├── CreateStory.tsx
-│   │   └── Settings.tsx
-│   ├── components/         # Reusable components
-│   │   ├── ModelSelector.tsx
-│   │   └── CharacterSlider.tsx
-│   ├── api/               # API routes
-│   │   ├── routes.ts      # Original routes
-│   │   ├── socialRoutes.ts
-│   │   └── tokenRoutes.ts
-│   ├── utils/             # Utilities
-│   │   └── useParams.ts
-│   ├── styles/            # Global styles
-│   │   └── index.css
-│   ├── types/             # TypeScript types
-│   │   └── index.ts
-│   ├── server.ts          # Server entry
-│   ├── App.tsx            # Main app with routing
-│   └── main.tsx           # React entry
-├── migrations/            # Database migrations
-├── data/                 # SQLite database
-├── index.html           # HTML entry
-└── package.json
-```
-
-## Running the Application
-
-### Development
 ```bash
+# Clone repository
+git clone https://github.com/youngstunners88/StoryChain.git
+cd StoryChain
+
+# Install dependencies
+bun install
+
+# Copy environment file
+cp .env.example .env
+
+# Edit environment variables
+nano .env
+# Add your ZO_CLIENT_IDENTITY_TOKEN from https://kofi.zo.computer/?t=settings&s=advanced
+
+# Start development server
 bun run dev
 ```
 
-### Production
+Visit http://localhost:3000
+
+## 📚 Documentation
+
+- [Deployment Guide](DEPLOYMENT.md) - Production deployment instructions
+- [Architecture](ARCHITECTURE-v3.md) - System architecture and design
+- [Security Audit](SECURITY_AUDIT_V3.md) - Security assessment report
+
+## 🔧 Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `ZO_CLIENT_IDENTITY_TOKEN` | Yes | - | Your Zo authentication token |
+| `PORT` | No | 3000 | Server port |
+| `NODE_ENV` | No | development | Environment mode |
+| `DATABASE_PATH` | No | ./data/storychain.db | SQLite database path |
+| `LOG_DIR` | No | ./logs | Log directory |
+| `LOG_LEVEL` | No | info | Log level (debug, info, warn, error) |
+
+See `.env.example` for all available options.
+
+## 🧪 Testing
+
 ```bash
-bun run build
-bun run start
+# Run all tests
+bun run test
+
+# Run API tests only
+bun run test:api
+
+# Run security audit
+bun run test:security
+
+# Run stress tests
+bun run test:stress
+
+# Check health endpoint
+bun run health
 ```
 
-### Database Migration
-```bash
-bun run migrate:v2
-# Apply social features manually:
-cat migrations/social-features.sql | sqlite3 data/storychain.db
+## 🏗️ Architecture
+
+```
+StoryChain/
+├── src/
+│   ├── api/           # API route handlers
+│   ├── components/    # React components
+│   ├── config/        # Configuration management
+│   ├── database/      # Database connection & initialization
+│   ├── middleware/    # Express/Hono middleware
+│   ├── pages/         # React page components
+│   ├── services/      # Business logic (LLM service)
+│   └── types/         # TypeScript type definitions
+├── tests/             # Test suites
+├── migrations/        # Database migrations
+└── docs/              # Documentation
 ```
 
-## Environment Variables
-```bash
-# Required
-ZO_CLIENT_IDENTITY_TOKEN=your_token
+## 🔒 Security
 
-# Optional - for additional AI models
-OPENROUTER_API_KEY=your_key
-GROQ_API_KEY=your_key
-INCEPTION_API_KEY=your_key
-GOOGLE_API_KEY=your_key
+- ✅ Bearer token authentication
+- ✅ Rate limiting (configurable)
+- ✅ SQL injection protection (parameterized queries)
+- ✅ XSS protection (CSP headers, React escaping)
+- ✅ Timing-safe token comparison
+- ✅ Input validation middleware
+- ✅ Circuit breaker pattern for external APIs
+
+See [SECURITY_AUDIT_V3.md](SECURITY_AUDIT_V3.md) for full security assessment.
+
+## 🚀 Deployment
+
+### Production Checklist
+
+- [ ] Set `NODE_ENV=production`
+- [ ] Configure `ZO_CLIENT_IDENTITY_TOKEN`
+- [ ] Change default `SESSION_SECRET`
+- [ ] Set up HTTPS
+- [ ] Configure database backups
+- [ ] Set up log rotation
+- [ ] Configure monitoring
+
+See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed instructions.
+
+## 📝 API Endpoints
+
+### Stories
+```
+GET    /api/stories              # List stories (with filters)
+POST   /api/stories              # Create new story
+GET    /api/stories/:id          # Get story details
+POST   /api/stories/:id/like     # Like/unlike story
+POST   /api/stories/:id/contributions  # Add contribution
 ```
 
-## Commit Summary
+### Users
+```
+GET    /api/users/:id            # Get user profile
+GET    /api/users/:id/stories    # Get user's stories
+POST   /api/users/:id/follow     # Follow/unfollow user
+```
 
-This commit adds a complete collaborative storytelling platform with:
-- 5 new pages (Feed, Story View, User Profile, Token Store, Settings)
-- 3 new API route modules (Social, Token, enhanced core)
-- 2 reusable components (ModelSelector, CharacterSlider)
-- Full social features (likes, follows, trending)
-- Token economy system
-- Comprehensive routing and navigation
-- Database migrations for social features
-- Updated server configuration with all new endpoints
-- Complete documentation
+### Tokens
+```
+GET    /api/tokens/packages      # List token packages
+POST   /api/tokens/purchase      # Purchase tokens
+POST   /api/tokens/free          # Claim daily free tokens
+```
 
-**Status**: All features implemented and ready for testing.
+### System
+```
+GET    /api/health               # Health check
+GET    /api/llm/models           # List available models
+```
+
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Built with [Hono](https://hono.dev) and [React](https://react.dev)
+- UI styled with [Tailwind CSS](https://tailwindcss.com)
+- Icons from [Lucide](https://lucide.dev)
+
+## 📧 Support
+
+For issues and feature requests, please use [GitHub Issues](https://github.com/youngstunners88/StoryChain/issues).

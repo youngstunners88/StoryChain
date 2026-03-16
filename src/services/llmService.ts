@@ -1,7 +1,8 @@
 // LLM Service - Unified interface for multiple LLM providers
 // With comprehensive error handling and logging
 
-import { LLMModel, LLMConfig, LLMResponse, LLM_MODELS, ApiError } from '../types';
+import { LLMModel, LLMConfig, LLMResponse, LLM_MODELS, ApiError } from '../types/index.js';
+import { config } from '../config/index.js';
 
 interface LLMRequest {
   model: LLMModel;
@@ -23,10 +24,30 @@ class LLMService {
   private requestTimeout = 30000; // 30 seconds
   private maxRetries = 3;
 
-  private getApiKey(config: LLMConfig): string {
-    const key = process.env[config.apiKeyEnvVar];
+  private getApiKey(modelConfig: LLMConfig): string {
+    // First check config object for known keys
+    switch (modelConfig.apiKeyEnvVar) {
+      case 'OPENROUTER_API_KEY':
+        if (config.apiKeys.openrouter) return config.apiKeys.openrouter;
+        break;
+      case 'INCEPTION_API_KEY':
+        if (config.apiKeys.inception) return config.apiKeys.inception;
+        break;
+      case 'GROQ_API_KEY':
+        if (config.apiKeys.groq) return config.apiKeys.groq;
+        break;
+      case 'GOOGLE_API_KEY':
+        if (config.apiKeys.google) return config.apiKeys.google;
+        break;
+      case 'ZO_CLIENT_IDENTITY_TOKEN':
+        if (config.zoClientIdentityToken) return config.zoClientIdentityToken;
+        break;
+    }
+    
+    // Fallback to environment variable
+    const key = process.env[modelConfig.apiKeyEnvVar];
     if (!key) {
-      throw new Error(`Missing API key: ${config.apiKeyEnvVar}. Please add it to Settings > Advanced.`);
+      throw new Error(`Missing API key: ${modelConfig.apiKeyEnvVar}. Please add it to Settings > Advanced.`);
     }
     return key;
   }
@@ -84,7 +105,7 @@ class LLMService {
     try {
       const fs = await import('fs/promises');
       await fs.appendFile(
-        '/home/workspace/StoryChain/logs/llm-errors.jsonl',
+        config.logging.llmErrorsPath,
         JSON.stringify(logEntry) + '\n'
       );
     } catch (e) {
@@ -414,11 +435,11 @@ class LLMService {
 
   validateApiKeys(): { key: string; valid: boolean; models: string[] }[] {
     return [
-      { key: 'ZO_CLIENT_IDENTITY_TOKEN', valid: !!process.env.ZO_CLIENT_IDENTITY_TOKEN, models: ['kimi-k2.5'] },
-      { key: 'OPENROUTER_API_KEY', valid: !!process.env.OPENROUTER_API_KEY, models: ['reka-edge', 'qwen-2.5'] },
-      { key: 'INCEPTION_API_KEY', valid: !!process.env.INCEPTION_API_KEY, models: ['mercury-2'] },
-      { key: 'GROQ_API_KEY', valid: !!process.env.GROQ_API_KEY, models: ['llama-3.1', 'gemma-2', 'mixtral-8x7b'] },
-      { key: 'GOOGLE_API_KEY', valid: !!process.env.GOOGLE_API_KEY, models: ['gemini-pro'] },
+      { key: 'ZO_CLIENT_IDENTITY_TOKEN', valid: !!config.zoClientIdentityToken, models: ['kimi-k2.5'] },
+      { key: 'OPENROUTER_API_KEY', valid: !!config.apiKeys.openrouter, models: ['reka-edge', 'qwen-2.5'] },
+      { key: 'INCEPTION_API_KEY', valid: !!config.apiKeys.inception, models: ['mercury-2'] },
+      { key: 'GROQ_API_KEY', valid: !!config.apiKeys.groq, models: ['llama-3.1', 'gemma-2', 'mixtral-8x7b'] },
+      { key: 'GOOGLE_API_KEY', valid: !!config.apiKeys.google, models: ['gemini-pro'] },
     ];
   }
 }

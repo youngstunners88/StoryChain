@@ -3,18 +3,7 @@
 
 import type { Context } from 'hono';
 import { timingSafeEqual } from 'node:crypto';
-
-// Database connection
-let db: any = null;
-
-async function getDb() {
-  if (!db) {
-    const { Database } = await import('bun:sqlite');
-    db = new Database('/home/workspace/StoryChain/data/storychain.db');
-    db.run('PRAGMA foreign_keys = ON');
-  }
-  return db;
-}
+import { getDb } from '../database/connection.js';
 
 // Auth middleware
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {

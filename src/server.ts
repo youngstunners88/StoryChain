@@ -5,6 +5,10 @@ import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { logger } from 'hono/logger';
 
+// Import config
+import { config, validateConfig } from './config/index.js';
+import { getDb, initializeDatabase, checkDatabaseHealth } from './database/connection.js';
+
 // Import existing routes
 import {
   getUserSettings,
@@ -51,6 +55,14 @@ import {
 
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
 
+// Validate configuration before starting
+const configValidation = validateConfig();
+if (!configValidation.valid) {
+  console.error('[Server] Configuration errors:');
+  configValidation.errors.forEach(err => console.error(`  - ${err}`));
+  process.exit(1);
+}
+
 const app = new Hono();
 
 // Security middleware
@@ -69,7 +81,7 @@ app.use(secureHeaders({
 
 // CORS
 app.use(cors({
-  origin: ['https://kofi.zo.space', 'https://kofi.zo.computer', 'http://localhost:3000'],
+  origin: config.cors.origins,
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
@@ -79,7 +91,26 @@ app.use(cors({
 app.use(logger());
 
 // Health check (no rate limit)
-app.get('/api/health', healthCheck);
+app.get('/api/health', async (c) => {
+  const dbHealth = await checkDatabaseHealth();
+  
+  if (!dbHealth.healthy) {
+    return c.json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: dbHealth.error,
+    }, 503);
+  }
+  
+  return c.json({
+    status: 'healthy',
+    timestamp: new Date().toISOString(),
+    database: 'connected',
+    version: '2.0.0',
+    environment: config.nodeEnv,
+  });
+});
 
 // === API Routes with rate limiting ===
 
@@ -132,36 +163,87 @@ app.get('*', serveStatic({ path: './index.html' }));
 
 // Error handler
 app.onError((err, c) => {
-  console.error('[SERVER ERROR]', {
+  const timestamp = new Date().toISOString();
+  const requestId = `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+  // Create rich error context
+  const errorContext = {
+    timestamp,
+    requestId,
     error: err.message,
-    stack: err.stack?.substring(0, 500),
+    stackTrace: err.stack?.substring(0, 500),
     path: c.req.path,
     method: c.req.method,
-    timestamp: new Date().toISOString(),
-  });
+  };
 
+  // Log to console with rich context
+  console.error('[SERVER ERROR]', errorContext);
+
+  // Return safe error to client
   return c.json({
     error: 'Internal server error',
     code: 'INTERNAL_ERROR',
-    requestId: `err_${Date.now()}`,
+    requestId,
+    timestamp,
   }, 500);
 });
 
-// Start server
-const port = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+// Not found handler
+app.notFound((c) => {
+  return c.json({
+    error: 'Not found',
+    code: 'NOT_FOUND',
+    path: c.req.path,
+  }, 404);
+});
 
-console.log(`
+// Initialize and start server
+async function startServer() {
+  try {
+    // Initialize database
+    await initializeDatabase();
+    
+    // Start server
+    const port = config.port;
+    
+    console.log(`
 ╔════════════════════════════════════════════════════════════╗
 ║                   StoryChain v2.0.0                        ║
 ║          Multi-LLM Collaborative Storytelling              ║
 ╠════════════════════════════════════════════════════════════╣
-║  Server: http://localhost:${port}                            ║
-║  API: http://localhost:${port}/api                         ║
-║  Health: http://localhost:${port}/api/health               ║
+║  Environment: ${config.nodeEnv.padEnd(44)} ║
+║  Server: http://localhost:${port}${port.toString().length === 4 ? '' : ' '}${''.padEnd(25)} ║
+║  API: http://localhost:${port}/api${''.padEnd(22)} ║
+║  Health: http://localhost:${port}/api/health${''.padEnd(16)} ║
 ╚════════════════════════════════════════════════════════════╝
-`);
+    `);
 
-export default {
-  port,
-  fetch: app.fetch,
-};
+    export default {
+      port,
+      fetch: app.fetch,
+    };
+  } catch (error) {
+    console.error('[Server] Failed to start:', error);
+    process.exit(1);
+  }
+}
+
+// Handle graceful shutdown
+process.on('SIGINT', () => {
+  console.log('\n[Server] Shutting down gracefully...');
+  const { closeDatabase } = await import('./database/connection.js');
+  closeDatabase();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\n[Server] Shutting down gracefully...');
+  const { closeDatabase } = await import('./database/connection.js');
+  closeDatabase();
+  process.exit(0);
+});
+
+// Start the server
+startServer();
+
+export default { port: config.port, fetch: app.fetch };

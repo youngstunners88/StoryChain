@@ -1,20 +1,11 @@
 // API Routes for StoryChain
 import type { Context } from 'hono';
-import { llmService } from '../services/llmService';
-import { DEFAULT_CHARACTER_EXTENSION, LLM_MODELS, ApiError } from '../types';
+import { llmService } from '../services/llmService.js';
+import { DEFAULT_CHARACTER_EXTENSION, LLM_MODELS, ApiError } from '../types/index.js';
 import { timingSafeEqual } from 'node:crypto';
-
-// Database connection (using SQLite/DuckDB pattern)
-let db: any = null;
-
-async function getDb() {
-  if (!db) {
-    const { Database } = await import('bun:sqlite');
-    db = new Database('/home/workspace/StoryChain/data/storychain.db');
-    db.run('PRAGMA foreign_keys = ON');
-  }
-  return db;
-}
+import { getDb } from '../database/connection.js';
+import { config } from '../config/index.js';
+import { appendFileSync } from 'fs';
 
 // Auth middleware - bearer token verification
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
@@ -24,7 +15,7 @@ async function requireAuth(c: Context): Promise<{ userId: string; email: string 
   }
 
   const token = auth.slice(7);
-  const expectedToken = process.env.ZO_CLIENT_IDENTITY_TOKEN;
+  const expectedToken = config.zoClientIdentityToken;
 
   if (!expectedToken) {
     return c.json({ error: 'Server configuration error' }, 500);
@@ -56,7 +47,7 @@ export async function getUserSettings(c: Context) {
     const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
 
     if (!user) {
-      // Create default user with 1000 free tokens (not 100)
+      // Create default user with 1000 free tokens
       database.run(
         'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
@@ -66,7 +57,7 @@ export async function getUserSettings(c: Context) {
         settings: {
           preferredModel: 'kimi-k2.5',
           autoPurchaseExtensions: false,
-          tokens: 1000,  // Updated from 100
+          tokens: 1000,
         },
       });
     }
@@ -123,7 +114,7 @@ export async function getUserProfile(c: Context) {
     let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
 
     if (!user) {
-      // Create default user with 1000 free tokens (not 100)
+      // Create default user with 1000 free tokens
       database.run(
         'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
@@ -220,6 +211,10 @@ export async function createStory(c: Context) {
     // Validation
     if (!title?.trim() || !content?.trim()) {
       return c.json({ error: 'Title and content are required' }, 400);
+    }
+
+    if (title.length > 200) {
+      return c.json({ error: 'Title must be less than 200 characters' }, 400);
     }
 
     if (content.length > maxCharacters) {
@@ -330,9 +325,8 @@ function handleError(
 
   // Write to file-based log
   try {
-    const fs = require('fs');
-    fs.appendFileSync(
-      '/home/workspace/StoryChain/logs/api-errors.jsonl',
+    appendFileSync(
+      config.logging.apiErrorsPath,
       JSON.stringify(errorContext) + '\n'
     );
   } catch {
@@ -368,3 +362,5 @@ export async function healthCheck(c: Context) {
     }, 503);
   }
 }
+
+export { requireAuth };
