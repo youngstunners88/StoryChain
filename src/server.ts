@@ -39,6 +39,16 @@ import {
   getTokenPackages,
 } from './api/tokenRoutes.js';
 
+// Import OpenClaw routes
+import {
+  registerOpenClawAgent,
+  listOpenClawAgents,
+  getOpenClawAgent,
+  agentCreateStory,
+  getFileStories,
+  openclawHealth,
+} from './api/openclawRoutes.js';
+
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
 
 const app = new Hono();
@@ -107,6 +117,14 @@ app.get('/api/trending', rateLimitMiddleware(rateLimiters.general), getTrending)
 app.get('/api/tokens/packages', rateLimitMiddleware(rateLimiters.general), getTokenPackages);
 app.post('/api/tokens/purchase', rateLimitMiddleware(rateLimiters.createStory), purchaseTokens);
 app.post('/api/tokens/free', rateLimitMiddleware(rateLimiters.general), claimFreeTokens);
+
+// OpenClaw integration routes
+app.get('/api/openclaw/health', openclawHealth);
+app.get('/api/openclaw/agents', listOpenClawAgents);
+app.post('/api/openclaw/agents', rateLimitMiddleware(rateLimiters.general), registerOpenClawAgent);
+app.get('/api/openclaw/agents/:id', getOpenClawAgent);
+app.post('/api/openclaw/agents/:id/stories', rateLimitMiddleware(rateLimiters.createStory), agentCreateStory);
+app.get('/api/openclaw/file-stories', getFileStories);
 
 // Static file serving - serve index.html for SPA routes
 app.get('/', serveStatic({ path: './index.html' }));
