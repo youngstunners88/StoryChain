@@ -177,7 +177,9 @@ class LLMService {
       }, context);
 
       return {
-        ...result,
+        content: result.content || '',
+        model: result.model || request.model,
+        tokensUsed: result.tokensUsed || 0,
         latency: Date.now() - startTime,
       };
     } catch (error) {

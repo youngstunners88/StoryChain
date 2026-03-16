@@ -186,7 +186,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
                 </div>
                 {!keyStatus?.valid && (
                   <p className="text-xs text-zinc-500">
-                    Add {model.apiKeyEnvVar} to Settings > Advanced to use this model.
+                    Add {model.apiKeyEnvVar} to Settings {'>'} Advanced to use this model.
                   </p>
                 )}
               </div>

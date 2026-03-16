@@ -187,7 +187,7 @@ export const Settings: React.FC = () => {
               <h2 className="text-lg font-semibold text-zinc-200">API Keys</h2>
             </div>
             <p className="mt-1 text-sm text-zinc-500">
-              Add your API keys to unlock more AI models. Keys are stored securely in Settings > Advanced.
+              Add your API keys to unlock more AI models. Keys are stored securely in Settings {'>'} Advanced.
             </p>
           </div>
 
