@@ -118,7 +118,19 @@ export const CreateStory: React.FC = () => {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to create story');
+        // API can return errors in two formats:
+        // { error: "string message" } or { error: { message: "string", code: "..." } }
+        let errorMessage: string;
+        if (typeof errorData.error === 'string') {
+          errorMessage = errorData.error;
+        } else if (errorData.error?.message) {
+          errorMessage = errorData.error.message;
+        } else if (errorData.message) {
+          errorMessage = errorData.message;
+        } else {
+          errorMessage = 'Failed to create story';
+        }
+        throw new Error(errorMessage);
       }
 
       const data = await response.json();
@@ -178,7 +190,7 @@ export const CreateStory: React.FC = () => {
                 Create Another
               </button>
               <a
-                href={`/story/${createdStory.id}`}
+                href={`#story/${createdStory.id}`}
                 className="px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors flex items-center gap-2"
               >
                 View Story

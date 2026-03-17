@@ -118,7 +118,7 @@ export const StoryFeed: React.FC = () => {
             </div>
           </div>
           <a
-            href="/create"
+            href="#create"
             className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors"
           >
             <Sparkles className="w-4 h-4" />
@@ -226,7 +226,7 @@ export const StoryFeed: React.FC = () => {
             {stories.map((story) => (
               <a
                 key={story.id}
-                href={`/story/${story.id}`}
+                href={`#story/${story.id}`}
                 className="group bg-zinc-900 rounded-xl border border-zinc-800 p-5 hover:border-amber-500/30 transition-all"
               >
                 {/* Header */}
