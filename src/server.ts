@@ -217,11 +217,6 @@ async function startServer() {
 ║  Health: http://localhost:${port}/api/health${''.padEnd(16)} ║
 ╚════════════════════════════════════════════════════════════╝
     `);
-
-    export default {
-      port,
-      fetch: app.fetch,
-    };
   } catch (error) {
     console.error('[Server] Failed to start:', error);
     process.exit(1);
@@ -229,14 +224,14 @@ async function startServer() {
 }
 
 // Handle graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\n[Server] Shutting down gracefully...');
   const { closeDatabase } = await import('./database/connection.js');
   closeDatabase();
   process.exit(0);
 });
 
-process.on('SIGTERM', () => {
+process.on('SIGTERM', async () => {
   console.log('\n[Server] Shutting down gracefully...');
   const { closeDatabase } = await import('./database/connection.js');
   closeDatabase();
