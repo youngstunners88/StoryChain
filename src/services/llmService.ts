@@ -252,7 +252,7 @@ class LLMService {
     const response = await fetch(config.endpoint, {
       method: 'POST',
       headers: {
-        'Authorization': apiKey,
+        'Authorization': `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({

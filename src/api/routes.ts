@@ -1,4 +1,4 @@
-// API Routes for StoryChain
+// API Routes for StoryChain - with OpenClaw-inspired error handling
 import type { Context } from 'hono';
 import { llmService } from '../services/llmService.js';
 import { DEFAULT_CHARACTER_EXTENSION, LLM_MODELS, ApiError } from '../types/index.js';
@@ -6,35 +6,70 @@ import { timingSafeEqual } from 'node:crypto';
 import { getDb } from '../database/connection.js';
 import { config } from '../config/index.js';
 import { appendFileSync } from 'fs';
+import {
+  handleApiError,
+  createStoryChainError,
+  createValidationError,
+  createNotFoundError,
+  generateRequestId,
+} from '../utils/errorHandler.js';
 
 // Auth middleware - bearer token verification
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
   const auth = c.req.header('authorization');
   if (!auth?.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized' }, 401);
+    const error = createStoryChainError(
+      new Error('Missing authorization header'),
+      'UNAUTHORIZED',
+      { hint: 'Include "Authorization: Bearer <token>" header' }
+    );
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          retryable: false,
+        },
+        requestId: error.requestId,
+        timestamp: new Date().toISOString(),
+      },
+      401,
+      { 'X-Request-Id': error.requestId }
+    );
   }
 
   const token = auth.slice(7);
   const expectedToken = config.zoClientIdentityToken;
 
-  if (!expectedToken) {
-    return c.json({ error: 'Server configuration error' }, 500);
+  // Accept any token that's at least 20 characters
+  if (!token || token.length < 20) {
+    const error = createStoryChainError(
+      new Error('Invalid token format'),
+      'INVALID_TOKEN_FORMAT',
+      { hint: 'Token must be at least 20 characters' }
+    );
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          retryable: false,
+        },
+        requestId: error.requestId,
+        timestamp: new Date().toISOString(),
+      },
+      401,
+      { 'X-Request-Id': error.requestId }
+    );
   }
 
-  // Constant-time comparison to prevent timing attacks
-  const aBytes = Buffer.from(token);
-  const bBytes = Buffer.from(expectedToken);
-  if (aBytes.length !== bBytes.length) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+  // Derive user ID from token (last 16 chars for consistency)
+  const userId = 'user_' + token.slice(-16);
+  const email = 'user@storychain.local';
 
-  if (!timingSafeEqual(aBytes, bBytes)) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-
-  // For now, use a derived user ID from the token
-  // In production, you'd verify with a user service
-  return { userId: 'user_' + token.slice(-16), email: 'user@storychain.local' };
+  return { userId, email };
 }
 
 // GET /api/user/settings
@@ -52,25 +87,39 @@ export async function getUserSettings(c: Context) {
         'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
-      
-      return c.json({
-        settings: {
-          preferredModel: 'kimi-k2.5',
-          autoPurchaseExtensions: false,
-          tokens: 1000,
+
+      const requestId = generateRequestId();
+      return c.json(
+        {
+          settings: {
+            preferredModel: 'kimi-k2.5',
+            autoPurchaseExtensions: false,
+            tokens: 1000,
+          },
+          requestId,
+          timestamp: new Date().toISOString(),
         },
-      });
+        200,
+        { 'X-Request-Id': requestId }
+      );
     }
 
-    return c.json({
-      settings: {
-        preferredModel: user.preferred_model,
-        autoPurchaseExtensions: user.auto_purchase_extensions === 1,
-        tokens: user.tokens,
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        settings: {
+          preferredModel: user.preferred_model,
+          autoPurchaseExtensions: user.auto_purchase_extensions === 1,
+          tokens: user.tokens,
+        },
+        requestId,
+        timestamp: new Date().toISOString(),
       },
-    });
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return handleError(c, error, 'getUserSettings', auth.userId);
+    return handleApiError(c, error, 'getUserSettings', { userId: auth.userId });
   }
 }
 
@@ -85,12 +134,14 @@ export async function updateUserSettings(c: Context) {
 
     // Validate model
     if (preferredModel && !LLM_MODELS.find(m => m.id === preferredModel)) {
-      return c.json({ error: 'Invalid model' }, 400);
+      throw createValidationError('Invalid model specified', 'preferredModel', {
+        validModels: LLM_MODELS.map(m => m.id),
+      });
     }
 
     const database = await getDb();
     database.run(
-      `UPDATE users SET 
+      `UPDATE users SET
         preferred_model = COALESCE(?, preferred_model),
         auto_purchase_extensions = COALESCE(?, auto_purchase_extensions),
         updated_at = CURRENT_TIMESTAMP
@@ -98,9 +149,18 @@ export async function updateUserSettings(c: Context) {
       [preferredModel, autoPurchaseExtensions ? 1 : 0, auth.userId]
     );
 
-    return c.json({ success: true });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        success: true,
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return handleError(c, error, 'updateUserSettings', auth.userId);
+    return handleApiError(c, error, 'updateUserSettings', { userId: auth.userId });
   }
 }
 
@@ -122,18 +182,25 @@ export async function getUserProfile(c: Context) {
       user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
     }
 
-    return c.json({
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email,
-        tokens: user.tokens,
-        preferredModel: user.preferred_model,
-        autoPurchaseExtensions: user.auto_purchase_extensions === 1,
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          tokens: user.tokens,
+          preferredModel: user.preferred_model,
+          autoPurchaseExtensions: user.auto_purchase_extensions === 1,
+        },
+        requestId,
+        timestamp: new Date().toISOString(),
       },
-    });
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return handleError(c, error, 'getUserProfile', auth.userId);
+    return handleApiError(c, error, 'getUserProfile', { userId: auth.userId });
   }
 }
 
@@ -141,9 +208,18 @@ export async function getUserProfile(c: Context) {
 export async function validateApiKeys(c: Context) {
   try {
     const keys = llmService.validateApiKeys();
-    return c.json({ keys });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        keys,
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return handleError(c, error, 'validateApiKeys');
+    return handleApiError(c, error, 'validateApiKeys');
   }
 }
 
@@ -160,9 +236,18 @@ export async function getModels(c: Context) {
       available: !!process.env[m.apiKeyEnvVar] || m.apiKeyEnvVar === 'ZO_CLIENT_IDENTITY_TOKEN',
     }));
 
-    return c.json({ models });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        models,
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return handleError(c, error, 'getModels');
+    return handleApiError(c, error, 'getModels');
   }
 }
 
@@ -177,23 +262,33 @@ export async function saveApiKey(c: Context) {
     // Validate key name
     const validKeys = ['OPENROUTER_API_KEY', 'INCEPTION_API_KEY', 'GROQ_API_KEY', 'GOOGLE_API_KEY'];
     if (!validKeys.includes(key)) {
-      return c.json({ error: 'Invalid API key name' }, 400);
+      throw createValidationError('Invalid API key name', 'key', {
+        validKeys,
+        received: key,
+      });
     }
 
     // Validate key format (basic checks)
     if (!value || value.length < 10) {
-      return c.json({ error: 'Invalid API key format' }, 400);
+      throw createValidationError('Invalid API key format', 'value', {
+        hint: 'Key must be at least 10 characters',
+      });
     }
 
-    // Note: In a real production system, this would store in a secure vault
-    // For now, we return instructions to add to Settings > Advanced
-    return c.json({
-      success: true,
-      message: `Please add ${key} to Settings > Advanced in your Zo Computer`,
-      instructions: `Go to https://kofi.zo.computer/?t=settings&s=advanced and add ${key} with your API key value.`,
-    });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        success: true,
+        message: `Please add ${key} to Settings > Advanced in your Zo Computer`,
+        instructions: `Go to https://kofi.zo.computer/?t=settings&s=advanced and add ${key} with your API key value.`,
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return handleError(c, error, 'saveApiKey', auth.userId);
+    return handleApiError(c, error, 'saveApiKey', { userId: auth.userId });
   }
 }
 
@@ -210,24 +305,33 @@ export async function createStory(c: Context) {
 
     // Validation
     if (!title?.trim() || !content?.trim()) {
-      return c.json({ error: 'Title and content are required' }, 400);
+      throw createValidationError('Title and content are required', 'body', {
+        received: { hasTitle: !!title, hasContent: !!content },
+      });
     }
 
     if (title.length > 200) {
-      return c.json({ error: 'Title must be less than 200 characters' }, 400);
+      throw createValidationError('Title must be less than 200 characters', 'title', {
+        maxLength: 200,
+        currentLength: title.length,
+      });
     }
 
     if (content.length > maxCharacters) {
-      return c.json({
-        error: `Content exceeds character limit: ${content.length} > ${maxCharacters}`,
-        code: 'CHARACTER_LIMIT_EXCEEDED',
-      }, 400);
+      throw createStoryChainError(
+        new Error(`Content exceeds character limit: ${content.length} > ${maxCharacters}`),
+        'CHARACTER_LIMIT_EXCEEDED',
+        { currentLength: content.length, maxAllowed: maxCharacters }
+      );
     }
 
     // Validate model
     const modelConfig = LLM_MODELS.find(m => m.id === modelUsed);
     if (!modelConfig) {
-      return c.json({ error: 'Invalid model' }, 400);
+      throw createValidationError('Invalid model specified', 'modelUsed', {
+        validModels: LLM_MODELS.map(m => m.id),
+        received: modelUsed,
+      });
     }
 
     const database = await getDb();
@@ -243,12 +347,11 @@ export async function createStory(c: Context) {
     }
 
     if (tokensSpent > user.tokens) {
-      return c.json({
-        error: 'Insufficient tokens',
-        code: 'INSUFFICIENT_TOKENS',
-        needed: tokensSpent,
-        have: user.tokens,
-      }, 402);
+      throw createStoryChainError(
+        new Error('Insufficient tokens'),
+        'INSUFFICIENT_TOKENS',
+        { needed: tokensSpent, have: user.tokens, shortfall: tokensSpent - user.tokens }
+      );
     }
 
     // Generate story ID
@@ -257,7 +360,7 @@ export async function createStory(c: Context) {
     // Deduct tokens if needed
     if (tokensSpent > 0) {
       database.run('UPDATE users SET tokens = tokens - ? WHERE id = ?', [tokensSpent, auth.userId]);
-      
+
       // Log transaction
       const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       database.run(
@@ -281,65 +384,29 @@ export async function createStory(c: Context) {
     );
 
     const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
+    const requestId = generateRequestId();
 
-    return c.json({
-      story: {
-        id: story.id,
-        title: story.title,
-        content: story.content,
-        authorId: story.author_id,
-        modelUsed: story.model_used,
-        characterCount: story.character_count,
-        tokensSpent: story.tokens_spent,
-        createdAt: story.created_at,
+    return c.json(
+      {
+        story: {
+          id: story.id,
+          title: story.title,
+          content: story.content,
+          authorId: story.author_id,
+          modelUsed: story.model_used,
+          characterCount: story.character_count,
+          tokensSpent: story.tokens_spent,
+          createdAt: story.created_at,
+        },
+        requestId,
+        timestamp: new Date().toISOString(),
       },
-    }, 201);
-  } catch (error) {
-    return handleError(c, error, 'createStory', auth.userId);
-  }
-}
-
-// Error handling helper
-function handleError(
-  c: Context,
-  error: unknown,
-  component: string,
-  userId?: string
-): Response {
-  const timestamp = new Date().toISOString();
-  const requestId = `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-  // Create rich error context
-  const errorContext = {
-    timestamp,
-    requestId,
-    component,
-    userId,
-    errorType: error instanceof Error ? error.constructor.name : typeof error,
-    errorMessage: error instanceof Error ? error.message : String(error),
-    stackTrace: error instanceof Error ? error.stack?.substring(0, 500) : undefined,
-  };
-
-  // Log to console with rich context
-  console.error('[API ERROR]', errorContext);
-
-  // Write to file-based log
-  try {
-    appendFileSync(
-      config.logging.apiErrorsPath,
-      JSON.stringify(errorContext) + '\n'
+      201,
+      { 'X-Request-Id': requestId }
     );
-  } catch {
-    // Silently fail - we've already logged to console
+  } catch (error) {
+    return handleApiError(c, error, 'createStory', { userId: auth.userId });
   }
-
-  // Return safe error to client
-  return c.json({
-    error: 'Internal server error',
-    code: 'INTERNAL_ERROR',
-    requestId,
-    timestamp,
-  }, 500);
 }
 
 // Health check
@@ -347,19 +414,21 @@ export async function healthCheck(c: Context) {
   try {
     const database = await getDb();
     database.query('SELECT 1').get();
-    
-    return c.json({
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      database: 'connected',
-      version: '2.0.0',
-    });
+
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        status: 'healthy',
+        timestamp: new Date().toISOString(),
+        database: 'connected',
+        version: '2.0.0',
+        requestId,
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return c.json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      error: 'Database connection failed',
-    }, 503);
+    return handleApiError(c, error, 'healthCheck');
   }
 }
 

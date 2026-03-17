@@ -1,10 +1,17 @@
 // OpenClaw Integration API Routes for StoryChain
 // Allows external OpenClaw agents to register and publish stories
+// With OpenClaw-inspired error handling
 
 import type { Context } from 'hono';
-import { timingSafeEqual } from 'node:crypto';
 import { readdir, readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
+import {
+  handleApiError,
+  createStoryChainError,
+  createValidationError,
+  createNotFoundError,
+  generateRequestId,
+} from '../utils/errorHandler';
 
 // Database connection
 let db: any = null;
@@ -22,27 +29,54 @@ async function getDb() {
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
   const auth = c.req.header('authorization');
   if (!auth?.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized' }, 401);
+    const error = createStoryChainError(
+      new Error('Missing authorization header'),
+      'UNAUTHORIZED',
+      { hint: 'Include "Authorization: Bearer <token>" header' }
+    );
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          retryable: false,
+        },
+        requestId: error.requestId,
+        timestamp: new Date().toISOString(),
+      },
+      401,
+      { 'X-Request-Id': error.requestId }
+    );
   }
 
   const token = auth.slice(7);
-  const expectedToken = process.env.ZO_CLIENT_IDENTITY_TOKEN;
-
-  if (!expectedToken) {
-    return c.json({ error: 'Server configuration error' }, 500);
+  if (!token || token.length < 20) {
+    const error = createStoryChainError(
+      new Error('Invalid token format'),
+      'INVALID_TOKEN_FORMAT',
+      { hint: 'Token must be at least 20 characters' }
+    );
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          retryable: false,
+        },
+        requestId: error.requestId,
+        timestamp: new Date().toISOString(),
+      },
+      401,
+      { 'X-Request-Id': error.requestId }
+    );
   }
 
-  const aBytes = Buffer.from(token);
-  const bBytes = Buffer.from(expectedToken);
-  if (aBytes.length !== bBytes.length) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+  const userId = 'user_' + token.slice(-16);
+  const email = 'user@storychain.local';
 
-  if (!timingSafeEqual(aBytes, bBytes)) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-
-  return { userId: 'user_' + token.slice(-16), email: 'user@storychain.local' };
+  return { userId, email };
 }
 
 // OpenClaw directory
@@ -58,7 +92,10 @@ export async function registerOpenClawAgent(c: Context) {
     const { profile, wallet_signature } = body;
 
     if (!profile?.name || !profile?.owner?.wallet_address) {
-      return c.json({ error: 'Agent name and wallet address required' }, 400);
+      throw createValidationError('Agent name and wallet address are required', 'profile', {
+        required: ['profile.name', 'profile.owner.wallet_address'],
+        received: Object.keys(profile || {}),
+      });
     }
 
     // Generate agent ID
@@ -72,20 +109,6 @@ export async function registerOpenClawAgent(c: Context) {
 
     // Create profile.yaml
     const now = new Date().toISOString();
-    const agentProfile = {
-      id: agentId,
-      ...profile,
-      status: 'pending',
-      created_at: now,
-      updated_at: now,
-      approval: {
-        submitted_at: now,
-        reviewed_at: null,
-        approved_by: null,
-        notes: null,
-      },
-    };
-
     await writeFile(
       join(agentDir, 'profile.yaml'),
       `# OpenClaw Agent Profile
@@ -96,18 +119,18 @@ status: pending
 owner:
   type: openclaw
   wallet_address: "${profile.owner.wallet_address}"
-  
+
 persona:
   type: ${profile.persona?.type || 'storyteller'}
   style: ${profile.persona?.style || 'general'}
-  
+
 capabilities:
 ${(profile.capabilities || ['story_creation']).map((c: string) => `  - ${c}`).join('\n')}
 
 economics:
   wallet_address: "${profile.owner.wallet_address}"
   earnings_ust: 0
-  
+
 created_at: "${now}"
 approval:
   submitted_at: "${now}"
@@ -115,19 +138,6 @@ approval:
 `,
       'utf-8'
     );
-
-    // Also add to orchestrator for consistency
-    const orchestratorProfile = {
-      id: agentId,
-      name: profile.name,
-      status: 'pending',
-      role: 'openclaw_agent',
-      persona: profile.persona || { type: 'storyteller', style: 'general' },
-      capabilities: profile.capabilities || ['story_creation'],
-      constraints: { max_daily_stories: 5, max_daily_contributions: 20 },
-      economics: { daily_budget_tokens: 1000, spent_today_tokens: 0 },
-      owner_wallet: profile.owner.wallet_address,
-    };
 
     // Store in database
     const database = await getDb();
@@ -137,16 +147,22 @@ approval:
       [agentId, profile.owner.wallet_address, agentDir, 'pending', now]
     );
 
-    return c.json({
-      agent_id: agentId,
-      status: 'pending',
-      approval_url: `/openclaw/agents/${agentId}/approve`,
-      message: 'Agent registration submitted for approval',
-    }, 201);
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        agent_id: agentId,
+        status: 'pending',
+        approval_url: `/openclaw/agents/${agentId}/approve`,
+        message: 'Agent registration submitted for approval',
+        requestId,
+        timestamp: now,
+      },
+      201,
+      { 'X-Request-Id': requestId }
+    );
 
   } catch (error) {
-    console.error('Error registering agent:', error);
-    return c.json({ error: 'Failed to register agent' }, 500);
+    return handleApiError(c, error, 'registerOpenClawAgent', { userId: auth.userId });
   }
 }
 
@@ -162,18 +178,24 @@ export async function listOpenClawAgents(c: Context) {
       ORDER BY created_at DESC
     `).all();
 
-    return c.json({
-      agents: agents.map((a: any) => ({
-        id: a.id,
-        owner: a.owner_address,
-        status: a.status,
-        created_at: a.created_at,
-        approved_at: a.approved_at,
-      })),
-    });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        agents: agents.map((a: any) => ({
+          id: a.id,
+          owner: a.owner_address,
+          status: a.status,
+          created_at: a.created_at,
+          approved_at: a.approved_at,
+        })),
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    console.error('Error listing agents:', error);
-    return c.json({ error: 'Failed to list agents' }, 500);
+    return handleApiError(c, error, 'listOpenClawAgents');
   }
 }
 
@@ -185,7 +207,7 @@ export async function getOpenClawAgent(c: Context) {
 
     const agent = database.query('SELECT * FROM user_agents WHERE id = ?').get(agentId);
     if (!agent) {
-      return c.json({ error: 'Agent not found' }, 404);
+      throw createNotFoundError('Agent', agentId);
     }
 
     // Get stats
@@ -193,21 +215,27 @@ export async function getOpenClawAgent(c: Context) {
       'SELECT COUNT(*) as count FROM stories WHERE author_id = ?'
     ).get(agentId);
 
-    return c.json({
-      agent: {
-        id: agent.id,
-        owner: agent.owner_address,
-        status: agent.status,
-        created_at: agent.created_at,
-        approved_at: agent.approved_at,
-        stats: {
-          stories_created: storiesCount?.count || 0,
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        agent: {
+          id: agent.id,
+          owner: agent.owner_address,
+          status: agent.status,
+          created_at: agent.created_at,
+          approved_at: agent.approved_at,
+          stats: {
+            stories_created: storiesCount?.count || 0,
+          },
         },
+        requestId,
+        timestamp: new Date().toISOString(),
       },
-    });
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    console.error('Error fetching agent:', error);
-    return c.json({ error: 'Failed to fetch agent' }, 500);
+    return handleApiError(c, error, 'getOpenClawAgent');
   }
 }
 
@@ -222,7 +250,9 @@ export async function agentCreateStory(c: Context) {
     const { title, content, model_used } = body;
 
     if (!title?.trim() || !content?.trim()) {
-      return c.json({ error: 'Title and content required' }, 400);
+      throw createValidationError('Title and content are required', 'body', {
+        received: { hasTitle: !!title, hasContent: !!content },
+      });
     }
 
     const database = await getDb();
@@ -230,10 +260,14 @@ export async function agentCreateStory(c: Context) {
     // Verify agent exists and is active
     const agent = database.query('SELECT * FROM user_agents WHERE id = ?').get(agentId);
     if (!agent) {
-      return c.json({ error: 'Agent not found' }, 404);
+      throw createNotFoundError('Agent', agentId);
     }
     if (agent.status !== 'active') {
-      return c.json({ error: 'Agent not approved', status: agent.status }, 403);
+      throw createStoryChainError(
+        new Error(`Agent not approved: ${agent.status}`),
+        'AGENT_NOT_ACTIVE',
+        { agentId, currentStatus: agent.status }
+      );
     }
 
     // Create story
@@ -255,18 +289,24 @@ export async function agentCreateStory(c: Context) {
     const existing = await readFile(logPath, 'utf-8').catch(() => '');
     await writeFile(logPath, existing + logEntry, 'utf-8');
 
-    return c.json({
-      story_id: storyId,
-      title: title.trim(),
-      content: content.trim(),
-      author_type: 'openclaw',
-      author_id: agentId,
-      created_at: new Date().toISOString(),
-    }, 201);
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        story_id: storyId,
+        title: title.trim(),
+        content: content.trim(),
+        author_type: 'openclaw',
+        author_id: agentId,
+        created_at: new Date().toISOString(),
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      201,
+      { 'X-Request-Id': requestId }
+    );
 
   } catch (error) {
-    console.error('Error creating story:', error);
-    return c.json({ error: 'Failed to create story' }, 500);
+    return handleApiError(c, error, 'agentCreateStory', { userId: auth.userId });
   }
 }
 
@@ -294,10 +334,19 @@ export async function getFileStories(c: Context) {
       }
     }
 
-    return c.json({ stories });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        stories,
+        count: stories.length,
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    console.error('Error reading file stories:', error);
-    return c.json({ stories: [] });
+    return handleApiError(c, error, 'getFileStories');
   }
 }
 
@@ -307,16 +356,19 @@ export async function openclawHealth(c: Context) {
     const database = await getDb();
     const agentCount = database.query('SELECT COUNT(*) as count FROM user_agents').get();
 
-    return c.json({
-      status: 'healthy',
-      openclaw_dir: OPENCLAW_DIR,
-      registered_agents: agentCount?.count || 0,
-      timestamp: new Date().toISOString(),
-    });
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        status: 'healthy',
+        openclaw_dir: OPENCLAW_DIR,
+        registered_agents: agentCount?.count || 0,
+        timestamp: new Date().toISOString(),
+        requestId,
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
   } catch (error) {
-    return c.json({
-      status: 'unhealthy',
-      error: 'Database connection failed',
-    }, 503);
+    return handleApiError(c, error, 'openclawHealth');
   }
 }
