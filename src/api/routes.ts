@@ -301,12 +301,24 @@ export async function createStory(c: Context) {
 
   try {
     const body = await c.req.json();
-    const { title, content, modelUsed, characterCount, tokensSpent, maxCharacters } = body;
+    const {
+      title,
+      content,
+      modelUsed,
+      characterCount,
+      tokensSpent,
+      maxCharacters,
+      ai_persona,        // 'spooky' | 'whimsical' | 'noir' | 'scifi' | 'romance' | 'adventure' | 'comedy'
+      max_contributions, // 3-20
+      is_premium,        // boolean
+    } = body;
 
-    // Validation
-    if (!title?.trim() || !content?.trim()) {
-      throw createValidationError('Title and content are required', 'body', {
-        received: { hasTitle: !!title, hasContent: !!content },
+    // --- Validation ---
+    const isAIGenerated = !!ai_persona;
+
+    if (!title?.trim()) {
+      throw createValidationError('Title is required', 'title', {
+        received: { hasTitle: !!title },
       });
     }
 
@@ -317,7 +329,16 @@ export async function createStory(c: Context) {
       });
     }
 
-    if (content.length > maxCharacters) {
+    // Content is only required when NOT using AI generation
+    if (!isAIGenerated && !content?.trim()) {
+      throw createValidationError('Content is required for manual stories', 'content', {
+        received: { hasContent: !!content },
+        hint: 'Provide content or set ai_persona to let AI generate it',
+      });
+    }
+
+    // Only validate content length for manual mode (AI generates its own length)
+    if (!isAIGenerated && maxCharacters && content.length > maxCharacters) {
       throw createStoryChainError(
         new Error(`Content exceeds character limit: ${content.length} > ${maxCharacters}`),
         'CHARACTER_LIMIT_EXCEEDED',
@@ -325,16 +346,25 @@ export async function createStory(c: Context) {
       );
     }
 
-    // Validate model
-    const modelConfig = LLM_MODELS.find(m => m.id === modelUsed);
+    // Validate model (default to kimi-k2.5 if not provided, e.g. AI mode from frontend)
+    const resolvedModel = modelUsed || 'kimi-k2.5';
+    const modelConfig = LLM_MODELS.find(m => m.id === resolvedModel);
     if (!modelConfig) {
       throw createValidationError('Invalid model specified', 'modelUsed', {
         validModels: LLM_MODELS.map(m => m.id),
-        received: modelUsed,
+        received: resolvedModel,
       });
     }
 
     const database = await getDb();
+
+    // Ensure columns exist (safe migration for older DBs)
+    try {
+      database.run(`ALTER TABLE stories ADD COLUMN is_premium INTEGER DEFAULT 0`);
+    } catch (_) { /* column already exists */ }
+    try {
+      database.run(`ALTER TABLE stories ADD COLUMN max_contributions INTEGER DEFAULT 50`);
+    } catch (_) { /* column already exists */ }
 
     // Check user exists and has tokens
     let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
@@ -343,44 +373,94 @@ export async function createStory(c: Context) {
         'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5']
       );
-      user = { tokens: 1000 };
+      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
     }
 
-    if (tokensSpent > user.tokens) {
+    const tokenCost = tokensSpent || 0;
+    if (tokenCost > 0 && tokenCost > user.tokens) {
       throw createStoryChainError(
         new Error('Insufficient tokens'),
         'INSUFFICIENT_TOKENS',
-        { needed: tokensSpent, have: user.tokens, shortfall: tokensSpent - user.tokens }
+        { needed: tokenCost, have: user.tokens, shortfall: tokenCost - user.tokens }
       );
+    }
+
+    // --- AI Generation ---
+    let finalContent = content?.trim() || '';
+    let finalCharacterCount = characterCount || 0;
+
+    if (isAIGenerated) {
+      const personaPrompts: Record<string, string> = {
+        spooky: 'Write a mysterious, haunting opening paragraph for a story titled',
+        whimsical: 'Write a playful, magical opening paragraph for a story titled',
+        noir: 'Write a dark, detective-style opening paragraph for a story titled',
+        scifi: 'Write a futuristic, sci-fi opening paragraph for a story titled',
+        romance: 'Write a romantic, passionate opening paragraph for a story titled',
+        adventure: 'Write an action-packed, adventurous opening paragraph for a story titled',
+        comedy: 'Write a humorous, witty opening paragraph for a story titled',
+      };
+
+      const personaKey = ai_persona in personaPrompts ? ai_persona : 'spooky';
+      const prompt = `${personaPrompts[personaKey]} "${title.trim()}". Make it engaging, vivid, and 200–350 characters long. Output only the story paragraph, no preamble.`;
+
+      const generation = await llmService.generateContent(
+        {
+          model: resolvedModel as any,
+          prompt,
+          temperature: 0.85,
+          maxTokens: 200,
+        },
+        { component: 'createStory.aiGeneration' }
+      );
+
+      if (generation.error || !generation.content) {
+        throw createStoryChainError(
+          new Error(generation.error?.message || 'AI generation returned empty content'),
+          'AI_GENERATION_FAILED',
+          { persona: ai_persona, model: resolvedModel }
+        );
+      }
+
+      finalContent = generation.content.trim();
+      finalCharacterCount = finalContent.length;
     }
 
     // Generate story ID
     const storyId = `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     // Deduct tokens if needed
-    if (tokensSpent > 0) {
-      database.run('UPDATE users SET tokens = tokens - ? WHERE id = ?', [tokensSpent, auth.userId]);
+    if (tokenCost > 0) {
+      database.run('UPDATE users SET tokens = tokens - ? WHERE id = ?', [tokenCost, auth.userId]);
 
-      // Log transaction
       const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       database.run(
         'INSERT INTO token_transactions (id, user_id, amount, type, description, story_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [txId, auth.userId, -tokensSpent, 'spend', 'Character extension for story', storyId]
+        [txId, auth.userId, -tokenCost, 'spend', isAIGenerated ? `AI story creation (${ai_persona})` : 'Manual story creation', storyId]
       );
     }
 
-    // Insert story
+    // Insert story with all fields
     database.run(
-      `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      [storyId, title.trim(), content.trim(), auth.userId, modelUsed, characterCount, tokensSpent]
+      `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, is_premium, max_contributions, is_completed, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        storyId,
+        title.trim(),
+        finalContent,
+        auth.userId,
+        resolvedModel,
+        finalCharacterCount,
+        tokenCost,
+        is_premium ? 1 : 0,
+        max_contributions || 50,
+      ]
     );
 
     // Log API usage
     const usageId = `usage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     database.run(
       'INSERT INTO api_usage (id, user_id, model, endpoint, tokens_input, tokens_output, latency_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [usageId, auth.userId, modelUsed, '/api/stories', characterCount, 0, Date.now() - startTime, true]
+      [usageId, auth.userId, resolvedModel, '/api/stories', finalCharacterCount, 0, Date.now() - startTime, true]
     );
 
     const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
@@ -396,6 +476,11 @@ export async function createStory(c: Context) {
           modelUsed: story.model_used,
           characterCount: story.character_count,
           tokensSpent: story.tokens_spent,
+          isPremium: story.is_premium === 1,
+          maxContributions: story.max_contributions,
+          isCompleted: story.is_completed === 1,
+          aiGenerated: isAIGenerated,
+          aiPersona: ai_persona || null,
           createdAt: story.created_at,
         },
         requestId,

@@ -41,6 +41,8 @@ import {
   claimFreeTokens,
   getTransactions,
   getTokenPackages,
+  getTokenInfo,
+  getTokenCosts,
 } from './api/tokenRoutes.js';
 
 // Import OpenClaw routes
@@ -145,6 +147,8 @@ app.post('/api/users/:id/follow', rateLimitMiddleware(rateLimiters.general), fol
 app.get('/api/trending', rateLimitMiddleware(rateLimiters.general), getTrending);
 
 // Tokens - strict rate limit
+app.get('/api/tokens', rateLimitMiddleware(rateLimiters.general), getTokenInfo);
+app.get('/api/tokens/costs', rateLimitMiddleware(rateLimiters.general), getTokenCosts);
 app.get('/api/tokens/packages', rateLimitMiddleware(rateLimiters.general), getTokenPackages);
 app.post('/api/tokens/purchase', rateLimitMiddleware(rateLimiters.createStory), purchaseTokens);
 app.post('/api/tokens/free', rateLimitMiddleware(rateLimiters.general), claimFreeTokens);
