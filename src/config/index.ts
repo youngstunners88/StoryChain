@@ -64,7 +64,7 @@ export const config = {
 
   // CORS
   cors: {
-    origins: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,https://kofi.zo.space,https://kofi.zo.computer')
+    origins: (process.env.ALLOWED_ORIGINS || '*')
       .split(',')
       .map(o => o.trim()),
   },
@@ -88,7 +88,8 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
   if (!config.zoClientIdentityToken) {
-    errors.push('ZO_CLIENT_IDENTITY_TOKEN is required but not set');
+    // Not required for deployment — only needed for Kimi K2.5 model
+    console.warn('[Config] Warning: ZO_CLIENT_IDENTITY_TOKEN not set. Kimi K2.5 model will be unavailable.');
   }
 
   if (config.isProduction) {
