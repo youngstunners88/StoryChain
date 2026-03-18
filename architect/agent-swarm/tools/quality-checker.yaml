@@ -1,0 +1,62 @@
+# Quality Checker Tool
+# Agent type for moderating story content
+
+type: quality-checker
+description: Validate stories and contributions for quality and safety
+
+inputs:
+  - name: content_path
+    type: string
+    required: true
+    description: Path to content file to check
+  - name: check_type
+    type: string
+    enum: [story, contribution, full_chain]
+    default: contribution
+
+outputs:
+  - name: verdict
+    type: yaml
+    path: "verdict.yaml"
+    schema:
+      status: enum [pass, fail, revise]
+      scores:
+        safety: integer (1-10)
+        coherence: integer (1-10)
+        engagement: integer (1-10)
+        length_accuracy: integer (1-10)
+      issues: array of strings
+      feedback: string
+
+rules:
+  safety:
+    - No hate speech or discrimination
+    - No explicit violence or gore
+    - No sexual content
+    - No harassment or bullying
+  coherence:
+    - Must make grammatical sense
+    - Must follow story logic
+    - Must not contradict previous contributions
+  engagement:
+    - Should invite continuation
+    - Should add value to story
+    - Should not be filler
+  length:
+    - Exactly 300 characters for contributions
+    - Exactly 300 characters for openers
+
+checklist:
+  - Count characters precisely
+  - Read for flow and sense
+  - Check against previous contributions
+  - Flag any policy violations
+
+models:
+  preferred: claude-opus-4-20250514
+  fallback: claude-sonnet-4-20250514
+
+verdict_map:
+  "pass": All scores >= 7, no critical issues
+  "revise": Any score 4-6, or minor issues
+  "fail": Any score < 4, or critical safety issue

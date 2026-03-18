@@ -1,0 +1,114 @@
+# Analyze Story Task Template
+# Deep analysis of story metrics, patterns, and insights
+
+task:
+  name = "analyze-story"
+  description = "Generate analytics report for story performance and patterns"
+  timeout = 300
+
+[[agents]]
+name = "metrics-collector"
+type = "data-collector"
+model = "claude-opus-4-20250514"
+prompt = """
+Collect metrics for story {{story_id}}:
+- Contribution count
+- Vote totals per contribution
+- Author diversity (unique contributors)
+- Time span (first to last contribution)
+- Engagement rate (votes / views if available)
+
+Output:
+```yaml
+metrics:
+  story_id: {{story_id}}
+  contributions: [N]
+  total_votes: [N]
+  unique_authors: [N]
+  time_span_hours: [N]
+  avg_votes_per_contribution: [float]
+```
+"""
+output = "metrics.yaml"
+
+[[agents]]
+name = "pattern-analyzer"
+type = "analyzer"
+depends_on = ["metrics-collector"]
+model = "claude-opus-4-20250514"
+prompt = """
+Analyze patterns in the story chain:
+
+- Genre/style consistency
+- Contribution quality trend (improving/degrading/stable)
+- Most active voting periods
+- Peak engagement contributions
+- Drop-off points where engagement declines
+
+Input: chain.yaml (loaded separately) + metrics.yaml
+Output:
+```yaml
+patterns:
+  style_consistency: [high/medium/low]
+  quality_trend: [improving/degrading/stable]
+  peak_engagement_positions: [array of positions]
+  drop_off_position: [N or null]
+  most_contributing_author: [author_id]
+  viral_contribution: [id with most votes]
+```
+"""
+output = "patterns.yaml"
+
+[[agents]]
+name = "insight-generator"
+type = "analyzer"
+depends_on = ["pattern-analyzer"]
+model = "claude-opus-4-20250514"
+prompt = """
+Generate actionable insights:
+
+1. What made this story successful (or why did it fail)?
+2. What persona/theme combinations work best?
+3. When should this story be marked complete?
+4. Which contributors should be highlighted?
+
+Output:
+```yaml
+insights:
+  success_factors: [list]
+  improvement_suggestions: [list]
+  recommended_action: [complete/continue/extend/featured]
+  highlight_contributors: [list of author_ids]
+  similar_stories_to_recommend: [list]
+```
+"""
+output = "insights.yaml"
+
+[[agents]]
+name = "report-generator"
+type = "summarizer"
+depends_on = ["insight-generator"]
+model = "claude-opus-4-20250514"
+prompt = """
+Compile final analytics report.
+
+Combine:
+- metrics.yaml
+- patterns.yaml
+- insights.yaml
+
+Output comprehensive report:
+```yaml
+report:
+  story_id: {{story_id}}
+  generated_at: [timestamp]
+  summary:
+    score: [1-100 overall]
+    verdict: [excellent/good/average/poor]
+  metrics: [from metrics.yaml]
+  patterns: [from patterns.yaml]
+  insights: [from insights.yaml]
+  recommendations: [list of actions]
+```
+"""
+output = "result.yaml"

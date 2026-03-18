@@ -1,0 +1,112 @@
+# Create Story Task Template
+# Spawns agents to generate and validate a story opener
+
+task:
+  name = "create-story"
+  description = "Generate a 300-character story opener with quality validation"
+  timeout = 300  # seconds
+
+[[agents]]
+name = "opener-creator"
+type = "story-creator"
+model = "claude-opus-4-20250514"
+prompt = """
+Generate a compelling 300-character story opener.
+
+Persona: {{persona}}
+Theme: {{theme}}
+
+Requirements:
+- Exactly 300 characters (no more, no less)
+- Engaging hook that invites continuation
+- Clear characters or setting
+- Open-ended enough for community contributions
+
+Output format:
+```yaml
+story:
+  title: "Story Title"
+  opener: "The 300-character opening text goes here..."
+  persona: "{{persona}}"
+  char_count: 300
+```
+"""
+output = "opener.yaml"
+
+[[agents]]
+name = "char-counter"
+type = "validator"
+depends_on = ["opener-creator"]
+model = "claude-opus-4-20250514"
+prompt = """
+Count characters in the opener exactly.
+Input file: opener.yaml
+Output:
+```yaml
+validation:
+  char_count: [actual count]
+  target: 300
+  status: [pass/fail]
+  difference: [+/- N]
+```
+"""
+output = "char-count.yaml"
+
+[[agents]]
+name = "quality-gate"
+type = "quality-checker"
+depends_on = ["char-counter"]
+model = "claude-opus-4-20250514"
+prompt = """
+Review story for quality and appropriateness.
+Check:
+- Content safety (no harmful/hateful content)
+- Coherence (makes sense, readable)
+- Engagement (would you want to continue?)
+- Tone appropriateness for persona
+
+Input files:
+- opener.yaml
+- char-count.yaml
+
+Output:
+```yaml
+verdict:
+  status: [pass/fail/revise]
+  scores:
+    safety: [1-10]
+    coherence: [1-10]
+    engagement: [1-10]
+  feedback: "Specific improvement notes if fail"
+```
+"""
+output = "verdict.yaml"
+
+[[agents]]
+name = "publisher"
+type = "api-actor"
+depends_on = ["quality-gate"]
+condition = "verdict.status == 'pass'"
+action = "POST /api/stories"
+payload_from = "opener.yaml"
+success_output = "published.yaml"
+
+[[agents]]
+name = "reporter"
+type = "summarizer"
+depends_on = ["publisher"]
+model = "claude-opus-4-20250514"
+prompt = """
+Summarize task completion.
+Output:
+```yaml
+result:
+  task: "create-story"
+  status: "completed"
+  story_id: [from published.yaml]
+  title: [story title]
+  final_verdict: [pass/fail]
+  completed_at: [timestamp]
+```
+"""
+output = "result.yaml"

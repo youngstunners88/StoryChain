@@ -1,0 +1,44 @@
+# Story Creator Tool
+# Agent type for generating story openers
+
+type: story-creator
+description: Generate 300-character story openers
+
+inputs:
+  - name: persona
+    type: string
+    enum: [adventure, romance, mystery, horror, comedy, scifi, fantasy]
+    required: true
+  - name: theme
+    type: string
+    required: false
+    default: "open"
+
+outputs:
+  - name: story
+    type: yaml
+    path: "opener.yaml"
+    schema:
+      title: string
+      opener: string (300 chars)
+      persona: string
+      char_count: integer
+
+constraints:
+  max_length: 300
+  min_length: 300
+  exact_length: true
+
+models:
+  preferred: claude-opus-4-20250514
+  fallback: claude-sonnet-4-20250514
+
+examples:
+  - input:
+      persona: mystery
+      theme: "noir detective"
+    output:
+      title: "The Missing Key"
+      opener: "The antique key felt cold in my palm. Behind the vault door, something waited—something worth killing for. I checked my watch. Two hours until the auction, and my client was already dead..."
+      persona: mystery
+      char_count: 300

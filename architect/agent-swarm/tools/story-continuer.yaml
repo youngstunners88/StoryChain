@@ -1,0 +1,57 @@
+# Story Continuer Tool
+# Agent type for continuing existing story chains
+
+type: story-continuer
+description: Read story chain and write 300-character continuation
+
+inputs:
+  - name: story_id
+    type: string
+    required: true
+  - name: chain_path
+    type: string
+    required: true
+    description: Path to chain files (memory/active/{task}/chain/)
+  - name: position
+    type: integer
+    required: true
+    description: Contribution position in chain (1-20)
+
+outputs:
+  - name: continuation
+    type: yaml
+    path: "continuation.yaml"
+    schema:
+      story_id: string
+      position: integer
+      content: string (300 chars)
+      char_count: integer
+      continues_from: string (previous contribution)
+
+constraints:
+  max_length: 300
+  min_length: 300
+  exact_length: true
+  max_chain_position: 20
+
+read_chain:
+  pattern: "*.yaml"
+  sort_by: position
+  take: all
+
+models:
+  preferred: claude-opus-4-20250514
+  fallback: claude-sonnet-4-20250514
+
+examples:
+  chain_context:
+    - position: 1
+      content: "The ship's engines coughed their last breath..."
+    - position: 2
+      content: "Captain Mara checked the fuel gauge again..."
+  output:
+    story_id: "story-123"
+    position: 3
+    content: "The asteroid field loomed ahead, swirling with ancient debris. Mara gripped the controls, her knuckles white. One wrong move and they'd be stardust. But turning back meant certain death..."
+    char_count: 300
+    continues_from: "Captain Mara checked..."

@@ -1,0 +1,94 @@
+# Moderate Story Task Template
+# Reviews existing story contributions for quality
+
+task:
+  name = "moderate-story"
+  description = "Review all contributions in a story chain for quality and coherence"
+  timeout = 600
+
+[[agents]]
+name = "chain-reader"
+type = "chain-loader"
+model = "claude-opus-4-20250514"
+prompt = """
+Load all contributions for story {{story_id}} from the database or API.
+Sort by position. Output chain context for reviewers.
+"""
+output = "chain.yaml"
+
+[[agents]]
+name = "contribution-checker"
+type = "quality-checker"
+depends_on = ["chain-reader"]
+model = "claude-opus-4-20250514"
+prompt = """
+Review each contribution in the chain.
+
+Checks per contribution:
+- Exactly 300 characters
+- Appropriate content (no harmful material)
+- Coherent with previous contributions
+- Advances the story
+
+Input: chain.yaml
+Output: 
+```yaml
+reviews:
+  - contribution_id: [id]
+    position: [N]
+    verdict: [pass/fail/revise]
+    issues: [list]
+  - ... (one per contribution)
+summary:
+  total: [N]
+  passed: [N]
+  failed: [N]
+```
+"""
+output = "reviews.yaml"
+
+[[agents]]
+name = "story-evaluator"
+type = "quality-checker"
+depends_on = ["contribution-checker"]
+model = "claude-opus-4-20250514"
+prompt = """
+Evaluate the complete story chain as a narrative.
+
+Assess:
+- Overall coherence
+- Character development
+- Plot progression
+- Engagement quality
+- Satisfying arc (for completed stories)
+
+Input: chain.yaml + reviews.yaml
+Output:
+```yaml
+evaluation:
+  story_id: {{story_id}}
+  overall_score: [1-10]
+  narrative_quality: [1-10]
+  recommendation: [promote/flag/complete/revise]
+  top_contributions: [ids of best 3]
+  weak_contributions: [ids needing work]
+```
+"""
+output = "evaluation.yaml"
+
+[[agents]]
+name = "action-taker"
+type = "api-actor"
+depends_on = ["story-evaluator"]
+condition = "evaluation.recommendation == 'flag'"
+action = "POST /api/stories/{{story_id}}/flag"
+payload_from = "evaluation.yaml"
+output = "action.yaml"
+
+[[agents]]
+name = "reporter"
+type = "summarizer"
+depends_on = ["action-taker"]
+model = "claude-opus-4-20250514"
+prompt = "Summarize moderation results."
+output = "result.yaml"

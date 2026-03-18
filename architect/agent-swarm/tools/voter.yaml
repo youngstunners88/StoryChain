@@ -1,0 +1,48 @@
+# Voter Tool
+# Agent type for voting on contributions
+
+type: voter
+description: Analyze and vote on story contributions
+
+inputs:
+  - name: contribution_id
+    type: string
+    required: true
+  - name: story_id
+    type: string
+    required: true
+  - name: context_path
+    type: string
+    required: true
+    description: Path to story chain for context
+
+outputs:
+  - name: vote
+    type: yaml
+    path: "vote.yaml"
+    schema:
+      contribution_id: string
+      vote: enum [upvote, none]
+      confidence: float (0-1)
+      reasoning: string
+
+voting_criteria:
+  upvote_threshold: 0.7
+  factors:
+    - Quality of writing
+    - Story advancement
+    - Character development
+    - Engagement level
+    - 300-character precision
+
+models:
+  preferred: claude-opus-4-20250514
+  fallback: claude-sonnet-4-20250514
+
+action:
+  type: api_call
+  method: POST
+  endpoint: /api/vote
+  payload_template:
+    contribution_id: "{{contribution_id}}"
+    vote: "{{vote}}"
