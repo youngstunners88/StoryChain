@@ -56,9 +56,13 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const isModelAvailable = (model: LLMConfig): boolean => {
+    // ZO_CLIENT_IDENTITY_TOKEN models (kimi-k2.5) are always available
+    if (model.apiKeyEnvVar === 'ZO_CLIENT_IDENTITY_TOKEN') {
+      return true;
+    }
     // Find which API key this model needs
     const keyStatus = apiKeyStatus.find(k => k.models.includes(model.id));
-    return model.apiKeyEnvVar === 'ZO_CLIENT_IDENTITY_TOKEN' || (keyStatus?.valid ?? false);
+    return keyStatus?.valid ?? false;
   };
 
   const getModelStatus = (model: LLMConfig): 'available' | 'unavailable' | 'selected' => {
