@@ -41,6 +41,8 @@ import {
   claimFreeTokens,
   getTransactions,
   getTokenPackages,
+  getTokenInfo,
+  getTokenCosts,
 } from './api/tokenRoutes.js';
 
 // Import OpenClaw routes
@@ -58,9 +60,9 @@ import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
 // Validate configuration before starting
 const configValidation = validateConfig();
 if (!configValidation.valid) {
-  console.error('[Server] Configuration errors:');
-  configValidation.errors.forEach(err => console.error(`  - ${err}`));
-  process.exit(1);
+  console.warn('[Server] Configuration warnings:');
+  configValidation.errors.forEach(err => console.warn(`  - ${err}`));
+  // Don't exit — allow partial functionality
 }
 
 const app = new Hono();
@@ -79,12 +81,13 @@ app.use(secureHeaders({
   xXssProtection: '1; mode=block',
 }));
 
-// CORS
+// CORS - wildcard or specific origins
+const corsOrigins = config.cors.origins;
 app.use(cors({
-  origin: config.cors.origins,
+  origin: corsOrigins.includes('*') ? '*' : corsOrigins,
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
+  credentials: !corsOrigins.includes('*'),
 }));
 
 // Request logging
@@ -145,6 +148,8 @@ app.post('/api/users/:id/follow', rateLimitMiddleware(rateLimiters.general), fol
 app.get('/api/trending', rateLimitMiddleware(rateLimiters.general), getTrending);
 
 // Tokens - strict rate limit
+app.get('/api/tokens', rateLimitMiddleware(rateLimiters.general), getTokenInfo);
+app.get('/api/tokens/costs', rateLimitMiddleware(rateLimiters.general), getTokenCosts);
 app.get('/api/tokens/packages', rateLimitMiddleware(rateLimiters.general), getTokenPackages);
 app.post('/api/tokens/purchase', rateLimitMiddleware(rateLimiters.createStory), purchaseTokens);
 app.post('/api/tokens/free', rateLimitMiddleware(rateLimiters.general), claimFreeTokens);

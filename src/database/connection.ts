@@ -44,6 +44,8 @@ export async function initializeDatabase(): Promise<void> {
       character_count INTEGER DEFAULT 0,
       tokens_spent INTEGER DEFAULT 0,
       is_completed INTEGER DEFAULT 0,
+      is_premium INTEGER DEFAULT 0,
+      max_contributions INTEGER DEFAULT 50,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (author_id) REFERENCES users(id)

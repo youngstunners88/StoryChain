@@ -171,3 +171,57 @@ export async function getTokenPackages(c: Context) {
 
   return c.json({ packages });
 }
+
+// GET /api/tokens - Get current user's token balance and info
+export async function getTokenInfo(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  try {
+    const database = await getDb();
+    let user = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId);
+
+    if (!user) {
+      // Auto-create user with 1000 starter tokens
+      database.run(
+        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
+        [auth.userId, 'user', 'user@storychain.local', 'kimi-k2.5', 0]
+      );
+      user = { tokens: 1000 };
+    }
+
+    // Calculate next refresh time (placeholder: 3 hours from last transaction or now)
+    const lastTx = database.query(
+      `SELECT created_at FROM token_transactions WHERE user_id = ? AND type = 'bonus' ORDER BY created_at DESC LIMIT 1`
+    ).get(auth.userId);
+
+    const refreshIntervalMs = 3 * 60 * 60 * 1000; // 3 hours
+    const lastClaimAt = lastTx ? new Date(lastTx.created_at).getTime() : 0;
+    const nextRefreshIn = Math.max(0, lastClaimAt + refreshIntervalMs - Date.now());
+
+    return c.json({
+      balance: user.tokens,
+      maxBalance: 1000,
+      nextRefreshIn,
+      canCreateAI: user.tokens >= 10,
+      canCreateManual: user.tokens >= 5,
+    });
+  } catch (error) {
+    console.error('Error fetching token info:', error);
+    return c.json({ error: 'Failed to fetch token info' }, 500);
+  }
+}
+
+// GET /api/tokens/costs - Return token cost configuration
+export async function getTokenCosts(c: Context) {
+  return c.json({
+    costs: {
+      aiStory: 10,
+      manualStory: 5,
+      aiContribute: 3,
+      manualContribute: 1,
+      maxBalance: 1000,
+      refreshHours: 3,
+    },
+  });
+}

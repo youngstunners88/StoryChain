@@ -28,6 +28,7 @@ RUN addgroup --system appgroup && adduser --system appuser --ingroup appgroup
 COPY --from=builder /app/package.json ./
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/src ./src
+COPY --from=builder /app/index.html ./index.html
 COPY --from=builder /app/dist ./dist 2>/dev/null || true
 
 # Create data directory for SQLite if needed
