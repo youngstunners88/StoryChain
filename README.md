@@ -9,20 +9,20 @@ A multi-LLM collaborative storytelling platform where users create stories and c
 - **Story Feed** - Browse, search, and filter stories from the community
 - **Collaborative Writing** - Add contributions to existing stories
 - **Social Features** - Like stories, follow authors, trending algorithm
-- **Token Economy** - Character-based pricing with daily free tokens
+- **Free to Use** - All features available without tokens or payment
 - **Responsive Design** - Works on desktop and mobile
 
 ### AI Models Supported
-| Model | Provider | Free Tier |
+| Model | Provider | Available |
 |-------|----------|-----------|
-| Kimi K2.5 | Zo | ✅ Yes |
+| Kimi K2.5 | Moonshot AI | ✅ Yes |
 | Llama 3.1 | Groq | ✅ Yes |
 | Gemma 2 | Groq | ✅ Yes |
 | Mixtral 8x7B | Groq | ✅ Yes |
 | Gemini Pro | Google | ✅ Yes |
-| Reka Edge | OpenRouter | ❌ No |
-| Qwen 2.5 | OpenRouter | ❌ No |
-| Mercury 2 | Inception | ❌ No |
+| Reka Edge | OpenRouter | ✅ Yes |
+| Qwen 2.5 | OpenRouter | ✅ Yes |
+| Mercury 2 | Inception | ✅ Yes |
 
 ## 🛠️ Quick Start
 
@@ -43,10 +43,6 @@ bun install
 # Copy environment file
 cp .env.example .env
 
-# Edit environment variables
-nano .env
-# Add your ZO_CLIENT_IDENTITY_TOKEN from https://kofi.zo.computer/?t=settings&s=advanced
-
 # Start development server
 bun run dev
 ```
@@ -65,12 +61,14 @@ Visit http://localhost:3000
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `ZO_CLIENT_IDENTITY_TOKEN` | Yes | - | Your Zo authentication token |
 | `PORT` | No | 3000 | Server port |
 | `NODE_ENV` | No | development | Environment mode |
 | `DATABASE_PATH` | No | ./data/storychain.db | SQLite database path |
 | `LOG_DIR` | No | ./logs | Log directory |
 | `LOG_LEVEL` | No | info | Log level (debug, info, warn, error) |
+| `OPENROUTER_API_KEY` | No | - | OpenRouter API key (optional) |
+| `GROQ_API_KEY` | No | - | Groq API key (optional) |
+| `GOOGLE_API_KEY` | No | - | Google API key (optional) |
 
 See `.env.example` for all available options.
 
@@ -113,11 +111,10 @@ StoryChain/
 
 ## 🔒 Security
 
-- ✅ Bearer token authentication
+- ✅ Bearer token authentication (optional)
 - ✅ Rate limiting (configurable)
 - ✅ SQL injection protection (parameterized queries)
 - ✅ XSS protection (CSP headers, React escaping)
-- ✅ Timing-safe token comparison
 - ✅ Input validation middleware
 - ✅ Circuit breaker pattern for external APIs
 
@@ -128,7 +125,6 @@ See [SECURITY_AUDIT_V3.md](SECURITY_AUDIT_V3.md) for full security assessment.
 ### Production Checklist
 
 - [ ] Set `NODE_ENV=production`
-- [ ] Configure `ZO_CLIENT_IDENTITY_TOKEN`
 - [ ] Change default `SESSION_SECRET`
 - [ ] Set up HTTPS
 - [ ] Configure database backups
@@ -153,13 +149,6 @@ POST   /api/stories/:id/contributions  # Add contribution
 GET    /api/users/:id            # Get user profile
 GET    /api/users/:id/stories    # Get user's stories
 POST   /api/users/:id/follow     # Follow/unfollow user
-```
-
-### Tokens
-```
-GET    /api/tokens/packages      # List token packages
-POST   /api/tokens/purchase      # Purchase tokens
-POST   /api/tokens/free          # Claim daily free tokens
 ```
 
 ### System
