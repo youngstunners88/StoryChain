@@ -8,6 +8,7 @@ async function getDb(): Promise<Database> {
   if (!db) {
     db = new Database("/home/workspace/StoryChain/data/storychain.db");
     db.run("PRAGMA foreign_keys = ON");
+    db.run("PRAGMA journal_mode = WAL");
   }
   return db;
 }
@@ -17,30 +18,25 @@ function requireAuth(c: Context): { userId: string; email: string } | Response {
   
   console.log("[AUTH] Authorization header:", auth ? `Present (${auth.length} chars)` : "Missing");
   
-  // For guest mode - allow anonymous creation (missing or empty/whitespace-only auth header)
   if (!auth || auth.trim() === "" || auth.trim() === "Bearer") {
     console.log("[AUTH] No auth header or empty - allowing anonymous");
     return { userId: "anonymous", email: "anon@storychain.local" };
   }
   
   if (!auth.startsWith("Bearer ")) {
-    console.log("[AUTH] Invalid auth format - must start with 'Bearer '");
-    return c.json({ error: "Invalid authorization format. Use 'Bearer <token>'" }, 401);
+    console.log("[AUTH] Invalid auth format");
+    return c.json({ error: "Invalid authorization format" }, 401);
   }
   
   const token = auth.slice(7).trim();
-  
-  // If token is empty after "Bearer ", treat as anonymous
   if (!token) {
-    console.log("[AUTH] Empty token after Bearer - allowing anonymous");
+    console.log("[AUTH] Empty token - allowing anonymous");
     return { userId: "anonymous", email: "anon@storychain.local" };
   }
   
   const expectedToken = process.env.ZO_CLIENT_IDENTITY_TOKEN;
-  
-  // If no server token configured, accept any valid-looking token
   if (!expectedToken) {
-    console.log("[AUTH] No ZO_CLIENT_IDENTITY_TOKEN configured - accepting provided token");
+    console.log("[AUTH] No server token configured - accepting token");
     return { userId: "user_" + token.slice(-16), email: "user@storychain.local" };
   }
   
@@ -48,19 +44,37 @@ function requireAuth(c: Context): { userId: string; email: string } | Response {
   const bBytes = Buffer.from(expectedToken);
   
   if (aBytes.length !== bBytes.length) {
-    console.log("[AUTH] Token length mismatch - allowing anonymous for guest mode");
-    // For guest mode, don't reject - just use anonymous
+    console.log("[AUTH] Token length mismatch - using anonymous");
     return { userId: "anonymous", email: "anon@storychain.local" };
   }
   
   if (!timingSafeEqual(aBytes, bBytes)) {
-    console.log("[AUTH] Token mismatch - allowing anonymous for guest mode");
-    // For guest mode, don't reject - just use anonymous
+    console.log("[AUTH] Token mismatch - using anonymous");
     return { userId: "anonymous", email: "anon@storychain.local" };
   }
   
-  console.log("[AUTH] Token validated successfully");
+  console.log("[AUTH] Token validated");
   return { userId: "user_" + token.slice(-16), email: "user@storychain.local" };
+}
+
+// Ensure anonymous user exists in the database
+async function ensureAnonymousUser(database: Database): Promise<void> {
+  const user = database.query("SELECT id FROM users WHERE id = ?").get("anonymous") as any;
+  if (!user) {
+    console.log("[ENSURE USER] Creating anonymous user");
+    try {
+      database.run(
+        "INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, ?, ?)",
+        ["anonymous", "anon", "anon@storychain.local", 1000, "kimi-k2.5"]
+      );
+      console.log("[ENSURE USER] Anonymous user created");
+    } catch (err) {
+      // User might already exist (race condition)
+      console.log("[ENSURE USER] User may already exist:", err);
+    }
+  } else {
+    console.log("[ENSURE USER] Anonymous user exists");
+  }
 }
 
 export default async function handler(c: Context) {
@@ -107,87 +121,152 @@ export default async function handler(c: Context) {
   
   // Handle POST - Create story
   if (c.req.method === "POST") {
-    console.log("[CREATE STORY] Starting request");
+    console.log("[CREATE STORY] ========== START ==========");
     
     const auth = requireAuth(c);
     if (auth instanceof Response) {
-      console.log("[CREATE STORY] Auth failed, returning error response");
+      console.log("[CREATE STORY] Auth failed");
       return auth;
     }
 
+    console.log("[CREATE STORY] User:", auth.userId);
     const startTime = Date.now();
 
     try {
       const body = await c.req.json();
-      console.log("[CREATE STORY] Body received:", { title: body?.title, contentLength: body?.content?.length });
+      console.log("[CREATE STORY] Body:", { 
+        title: body?.title, 
+        hasContent: !!body?.content,
+        contentLength: body?.content?.length,
+        modelUsed: body?.modelUsed,
+        ai_persona: body?.ai_persona
+      });
       
-      const { title, content, modelUsed } = body;
+      const { 
+        title, 
+        content, 
+        modelUsed, 
+        ai_persona,
+        tokensSpent: requestedTokensSpent 
+      } = body;
 
-      // BUG: This validation is always requiring content, but when useAI=true,
-      // the content is empty because the AI will generate it.
-      // FIX: Only require content when NOT in AI mode.
-      if (!title?.trim() || !content?.trim()) {
-        return c.json({ error: "Title and content are required" }, 400);
+      // Validate title
+      if (!title?.trim()) {
+        console.log("[CREATE STORY] Validation failed: missing title");
+        return c.json({ error: "Title is required" }, 400);
+      }
+      
+      // Detect AI mode
+      const isAIMode = !!ai_persona;
+      console.log("[CREATE STORY] Mode:", isAIMode ? "AI" : "Manual");
+      
+      // For manual mode, content is required
+      if (!isAIMode && !content?.trim()) {
+        console.log("[CREATE STORY] Validation failed: manual mode requires content");
+        return c.json({ error: "Content is required for manual stories" }, 400);
       }
 
-      const characterCount = content.length;
-      const tokensSpent = 0; // Free for now
+      const characterCount = content?.length || 0;
+      const tokensSpent = requestedTokensSpent || 0;
       const maxCharacters = 10000;
 
       if (characterCount > maxCharacters) {
         return c.json({
-          error: `Content exceeds character limit: ${characterCount} > ${maxCharacters}`,
+          error: `Content exceeds limit: ${characterCount} > ${maxCharacters}`,
         }, 400);
       }
 
-      const validModels = ["kimi-k2.5", "reka-edge", "qwen-2.5", "mercury-2", "llama-3.1", "gemma-2", "mixtral-8x7b", "gemini-pro"];
-      if (!validModels.includes(modelUsed)) {
-        return c.json({ error: `Invalid model. Valid models: ${validModels.join(", ")}` }, 400);
+      // Ensure anonymous user exists BEFORE starting transaction
+      if (auth.userId === "anonymous") {
+        await ensureAnonymousUser(database);
       }
 
-      let user = database.query("SELECT * FROM users WHERE id = ?").get(auth.userId);
+      // Get or create user
+      let user = database.query("SELECT * FROM users WHERE id = ?").get(auth.userId) as any;
+      console.log("[CREATE STORY] User lookup:", user ? "Found" : "Not found");
 
       if (!user) {
-        console.log("[CREATE STORY] Creating new user:", auth.userId);
-        database.run(
-          "INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)",
-          [auth.userId, auth.email.split("@")[0], auth.email, "kimi-k2.5"]
-        );
-        user = { tokens: 1000 };
+        console.log("[CREATE STORY] Creating user:", auth.userId);
+        try {
+          database.run(
+            "INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, ?, ?)",
+            [auth.userId, auth.email.split("@")[0], auth.email, 1000, modelUsed || "kimi-k2.5"]
+          );
+          user = { tokens: 1000 };
+          console.log("[CREATE STORY] User created");
+        } catch (userErr) {
+          console.error("[CREATE STORY] User creation error:", userErr);
+          // Try to fetch again in case of race condition
+          user = database.query("SELECT * FROM users WHERE id = ?").get(auth.userId) as any;
+        }
       }
 
-      if (tokensSpent > user.tokens) {
+      if (!user) {
+        console.error("[CREATE STORY] User still not found after creation attempt");
+        return c.json({ error: "Failed to create user" }, 500);
+      }
+
+      // Check tokens
+      const currentTokens = user.tokens || 0;
+      console.log("[CREATE STORY] Tokens - have:", currentTokens, "need:", tokensSpent);
+      
+      if (tokensSpent > currentTokens) {
         return c.json({
-          error: `Insufficient tokens. Need ${tokensSpent}, have ${user.tokens}`,
+          error: `Insufficient tokens. Need ${tokensSpent}, have ${currentTokens}`,
         }, 402);
       }
 
       const storyId = `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-      if (tokensSpent > 0) {
-        database.run("UPDATE users SET tokens = tokens - ? WHERE id = ?", [tokensSpent, auth.userId]);
-        const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // Use explicit transaction with deferred foreign keys
+      database.run("BEGIN TRANSACTION");
+      
+      try {
+        // Temporarily disable foreign key checks during transaction
+        database.run("PRAGMA defer_foreign_keys = ON");
+        
+        if (tokensSpent > 0) {
+          console.log("[CREATE STORY] Deducting tokens:", tokensSpent);
+          database.run("UPDATE users SET tokens = tokens - ? WHERE id = ?", [tokensSpent, auth.userId]);
+          
+          const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          console.log("[CREATE STORY] Recording transaction:", txId);
+          database.run(
+            "INSERT INTO token_transactions (id, user_id, amount, type, description, story_id) VALUES (?, ?, ?, ?, ?, ?)",
+            [txId, auth.userId, -tokensSpent, "spend", "Story creation", storyId]
+          );
+        }
+
+        console.log("[CREATE STORY] Inserting story:", storyId);
         database.run(
-          "INSERT INTO token_transactions (id, user_id, amount, type, description, story_id) VALUES (?, ?, ?, ?, ?, ?)",
-          [txId, auth.userId, -tokensSpent, "spend", "Character extension for story", storyId]
+          `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [storyId, title.trim(), content?.trim() || "", auth.userId, modelUsed || "kimi-k2.5", characterCount, tokensSpent]
         );
+        
+        database.run("COMMIT");
+        console.log("[CREATE STORY] Transaction committed");
+      } catch (txError) {
+        database.run("ROLLBACK");
+        console.error("[CREATE STORY] Transaction failed:", txError);
+        throw txError;
       }
 
-      database.run(
-        `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [storyId, title.trim(), content.trim(), auth.userId, modelUsed, characterCount, tokensSpent]
-      );
-
-      const usageId = `usage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      database.run(
-        "INSERT INTO api_usage (id, user_id, model, endpoint, tokens_input, tokens_output, latency_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [usageId, auth.userId, modelUsed, "/api/stories", characterCount, 0, Date.now() - startTime, true]
-      );
+      // Log API usage
+      try {
+        const usageId = `usage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        database.run(
+          "INSERT INTO api_usage (id, user_id, model, endpoint, tokens_input, tokens_output, latency_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [usageId, auth.userId, modelUsed || "kimi-k2.5", "/api/stories", characterCount, 0, Date.now() - startTime, true]
+        );
+      } catch (usageErr) {
+        // Non-critical, just log
+        console.log("[CREATE STORY] API usage log failed:", usageErr);
+      }
 
       const story = database.query("SELECT * FROM stories WHERE id = ?").get(storyId) as any;
-
-      console.log("[CREATE STORY] Success:", storyId);
+      console.log("[CREATE STORY] ========== SUCCESS ==========", storyId);
+      
       return c.json({
         story: {
           id: story.id,
@@ -201,7 +280,7 @@ export default async function handler(c: Context) {
         },
       }, 201);
     } catch (error) {
-      console.error("[CREATE STORY ERROR]", error);
+      console.error("[CREATE STORY] ========== ERROR ==========", error);
       return c.json({ error: "Internal server error" }, 500);
     }
   }

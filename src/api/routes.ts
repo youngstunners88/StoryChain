@@ -1,4 +1,4 @@
-// API Routes for StoryChain - with OpenClaw-inspired error handling
+// API Routes for StoryChain - Token-free version
 import type { Context } from 'hono';
 import { llmService } from '../services/llmService.js';
 import { DEFAULT_CHARACTER_EXTENSION, LLM_MODELS, ApiError } from '../types/index.js';
@@ -40,7 +40,6 @@ async function requireAuth(c: Context): Promise<{ userId: string; email: string 
   }
 
   const token = auth.slice(7);
-  const expectedToken = config.zoClientIdentityToken;
 
   // Accept any token that's at least 20 characters
   if (!token || token.length < 20) {
@@ -82,9 +81,9 @@ export async function getUserSettings(c: Context) {
     const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
 
     if (!user) {
-      // Create default user with 1000 free tokens
+      // Create default user - NO TOKENS
       database.run(
-        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
+        'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
 
@@ -94,7 +93,6 @@ export async function getUserSettings(c: Context) {
           settings: {
             preferredModel: 'kimi-k2.5',
             autoPurchaseExtensions: false,
-            tokens: 1000,
           },
           requestId,
           timestamp: new Date().toISOString(),
@@ -110,7 +108,6 @@ export async function getUserSettings(c: Context) {
         settings: {
           preferredModel: user.preferred_model,
           autoPurchaseExtensions: user.auto_purchase_extensions === 1,
-          tokens: user.tokens,
         },
         requestId,
         timestamp: new Date().toISOString(),
@@ -174,9 +171,9 @@ export async function getUserProfile(c: Context) {
     let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
 
     if (!user) {
-      // Create default user with 1000 free tokens
+      // Create default user - NO TOKENS
       database.run(
-        'INSERT INTO users (id, username, email, tokens, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, 1000, ?, ?)',
+        'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
       user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
@@ -189,7 +186,6 @@ export async function getUserProfile(c: Context) {
           id: user.id,
           username: user.username,
           email: user.email,
-          tokens: user.tokens,
           preferredModel: user.preferred_model,
           autoPurchaseExtensions: user.auto_purchase_extensions === 1,
         },
@@ -292,12 +288,19 @@ export async function saveApiKey(c: Context) {
   }
 }
 
-// POST /api/stories
+// POST /api/stories - Create story (PUBLIC - supports anonymous, agent, and authenticated users)
 export async function createStory(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
-
   const startTime = Date.now();
+
+  // Try to get auth, but don't require it
+  let auth: { userId: string; email: string } | null = null;
+  const authHeader = c.req.header('authorization');
+  if (authHeader?.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    if (token && token.length >= 20) {
+      auth = { userId: 'user_' + token.slice(-16), email: 'user@storychain.local' };
+    }
+  }
 
   try {
     const body = await c.req.json();
@@ -305,21 +308,13 @@ export async function createStory(c: Context) {
       title,
       content,
       modelUsed,
-      characterCount,
-      tokensSpent,
-      maxCharacters,
-      ai_persona,        // 'spooky' | 'whimsical' | 'noir' | 'scifi' | 'romance' | 'adventure' | 'comedy'
-      max_contributions, // 3-20
-      is_premium,        // boolean
+      authorId,     // Optional: for anonymous/agent authors
+      authorName,   // Optional: display name
     } = body;
 
     // --- Validation ---
-    const isAIGenerated = !!ai_persona;
-
     if (!title?.trim()) {
-      throw createValidationError('Title is required', 'title', {
-        received: { hasTitle: !!title },
-      });
+      throw createValidationError('Title is required', 'title');
     }
 
     if (title.length > 200) {
@@ -329,24 +324,11 @@ export async function createStory(c: Context) {
       });
     }
 
-    // Content is only required when NOT using AI generation
-    if (!isAIGenerated && !content?.trim()) {
-      throw createValidationError('Content is required for manual stories', 'content', {
-        received: { hasContent: !!content },
-        hint: 'Provide content or set ai_persona to let AI generate it',
-      });
+    if (!content?.trim()) {
+      throw createValidationError('Content is required', 'content');
     }
 
-    // Only validate content length for manual mode (AI generates its own length)
-    if (!isAIGenerated && maxCharacters && content.length > maxCharacters) {
-      throw createStoryChainError(
-        new Error(`Content exceeds character limit: ${content.length} > ${maxCharacters}`),
-        'CHARACTER_LIMIT_EXCEEDED',
-        { currentLength: content.length, maxAllowed: maxCharacters }
-      );
-    }
-
-    // Validate model (default to kimi-k2.5 if not provided, e.g. AI mode from frontend)
+    // Validate model (default to kimi-k2.5)
     const resolvedModel = modelUsed || 'kimi-k2.5';
     const modelConfig = LLM_MODELS.find(m => m.id === resolvedModel);
     if (!modelConfig) {
@@ -358,109 +340,50 @@ export async function createStory(c: Context) {
 
     const database = await getDb();
 
-    // Ensure columns exist (safe migration for older DBs)
-    try {
-      database.run(`ALTER TABLE stories ADD COLUMN is_premium INTEGER DEFAULT 0`);
-    } catch (_) { /* column already exists */ }
-    try {
-      database.run(`ALTER TABLE stories ADD COLUMN max_contributions INTEGER DEFAULT 50`);
-    } catch (_) { /* column already exists */ }
+    // Determine author - priority: auth > provided authorId/agent > anonymous
+    let finalAuthorId: string;
+    let finalAuthorName: string;
 
-    // Check user exists and has tokens
-    let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    if (auth) {
+      // Authenticated user
+      finalAuthorId = auth.userId;
+      finalAuthorName = auth.email.split('@')[0];
+    } else if (authorId) {
+      // Provided author (agent or anonymous)
+      finalAuthorId = authorId;
+      finalAuthorName = authorName || (authorId.startsWith('agent_') ? 'Agent' : 'Anonymous');
+    } else {
+      // Generate anonymous user
+      finalAuthorId = 'anon_' + Math.random().toString(36).substr(2, 9);
+      finalAuthorName = 'Anonymous';
+    }
+
+    // Create/get user in database - NO TOKENS
+    let user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
     if (!user) {
       database.run(
-        'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
-        [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5']
+        'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+        [finalAuthorId, finalAuthorName, `${finalAuthorId}@storychain.local`, resolvedModel]
       );
-      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
-    }
-
-    const tokenCost = tokensSpent || 0;
-    if (tokenCost > 0 && tokenCost > user.tokens) {
-      throw createStoryChainError(
-        new Error('Insufficient tokens'),
-        'INSUFFICIENT_TOKENS',
-        { needed: tokenCost, have: user.tokens, shortfall: tokenCost - user.tokens }
-      );
-    }
-
-    // --- AI Generation ---
-    let finalContent = content?.trim() || '';
-    let finalCharacterCount = characterCount || 0;
-
-    if (isAIGenerated) {
-      const personaPrompts: Record<string, string> = {
-        spooky: 'Write a mysterious, haunting opening paragraph for a story titled',
-        whimsical: 'Write a playful, magical opening paragraph for a story titled',
-        noir: 'Write a dark, detective-style opening paragraph for a story titled',
-        scifi: 'Write a futuristic, sci-fi opening paragraph for a story titled',
-        romance: 'Write a romantic, passionate opening paragraph for a story titled',
-        adventure: 'Write an action-packed, adventurous opening paragraph for a story titled',
-        comedy: 'Write a humorous, witty opening paragraph for a story titled',
-      };
-
-      const personaKey = ai_persona in personaPrompts ? ai_persona : 'spooky';
-      const prompt = `${personaPrompts[personaKey]} "${title.trim()}". Make it engaging, vivid, and 200–350 characters long. Output only the story paragraph, no preamble.`;
-
-      const generation = await llmService.generateContent(
-        {
-          model: resolvedModel as any,
-          prompt,
-          temperature: 0.85,
-          maxTokens: 200,
-        },
-        { component: 'createStory.aiGeneration' }
-      );
-
-      if (generation.error || !generation.content) {
-        throw createStoryChainError(
-          new Error(generation.error?.message || 'AI generation returned empty content'),
-          'AI_GENERATION_FAILED',
-          { persona: ai_persona, model: resolvedModel }
-        );
-      }
-
-      finalContent = generation.content.trim();
-      finalCharacterCount = finalContent.length;
     }
 
     // Generate story ID
     const storyId = `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Deduct tokens if needed
-    if (tokenCost > 0) {
-      database.run('UPDATE users SET tokens = tokens - ? WHERE id = ?', [tokenCost, auth.userId]);
-
-      const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      database.run(
-        'INSERT INTO token_transactions (id, user_id, amount, type, description, story_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [txId, auth.userId, -tokenCost, 'spend', isAIGenerated ? `AI story creation (${ai_persona})` : 'Manual story creation', storyId]
-      );
-    }
-
-    // Insert story with all fields
+    // Insert story - NO TOKENS_SPENT
     database.run(
-      `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, is_premium, max_contributions, is_completed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      `INSERT INTO stories (id, title, content, author_id, model_used, character_count, is_premium, max_contributions, is_completed, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         storyId,
         title.trim(),
-        finalContent,
-        auth.userId,
+        content.trim(),
+        finalAuthorId,
         resolvedModel,
-        finalCharacterCount,
-        tokenCost,
-        is_premium ? 1 : 0,
-        max_contributions || 50,
+        content.length,
+        0, // Not premium
+        50, // Default max contributions
       ]
-    );
-
-    // Log API usage
-    const usageId = `usage_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    database.run(
-      'INSERT INTO api_usage (id, user_id, model, endpoint, tokens_input, tokens_output, latency_ms, success) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [usageId, auth.userId, resolvedModel, '/api/stories', finalCharacterCount, 0, Date.now() - startTime, true]
     );
 
     const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
@@ -473,14 +396,9 @@ export async function createStory(c: Context) {
           title: story.title,
           content: story.content,
           authorId: story.author_id,
+          authorName: finalAuthorName,
           modelUsed: story.model_used,
           characterCount: story.character_count,
-          tokensSpent: story.tokens_spent,
-          isPremium: story.is_premium === 1,
-          maxContributions: story.max_contributions,
-          isCompleted: story.is_completed === 1,
-          aiGenerated: isAIGenerated,
-          aiPersona: ai_persona || null,
           createdAt: story.created_at,
         },
         requestId,
@@ -490,7 +408,7 @@ export async function createStory(c: Context) {
       { 'X-Request-Id': requestId }
     );
   } catch (error) {
-    return handleApiError(c, error, 'createStory', { userId: auth.userId });
+    return handleApiError(c, error, 'createStory', { userId: auth?.userId || 'anonymous' });
   }
 }
 

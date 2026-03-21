@@ -111,7 +111,6 @@ export async function getStories(c: Context) {
         authorName: s.author_name,
         modelUsed: s.model_used,
         characterCount: s.character_count,
-        tokensSpent: s.tokens_spent,
         isCompleted: s.is_completed === 1,
         isPremium: s.is_premium === 1,
         maxContributions: s.max_contributions ?? 50,
@@ -127,7 +126,7 @@ export async function getStories(c: Context) {
   }
 }
 
-// Helper function to create demo stories
+// Helper function to create demo stories - UPDATED: removed tokens
 async function createDemoStories(database: any) {
   const demoStories = [
     {
@@ -157,34 +156,28 @@ async function createDemoStories(database: any) {
     // Check if demo story already exists
     const existing = database.query('SELECT 1 FROM stories WHERE id = ?').get(story.id);
     if (!existing) {
-      // Create demo user if not exists
+      // Create demo user if not exists - NO TOKENS
       const demoUserId = `user_${story.author.toLowerCase()}`;
       const userExists = database.query('SELECT 1 FROM users WHERE id = ?').get(demoUserId);
       if (!userExists) {
         database.run(
-          'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
+          'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
           [demoUserId, story.author, `${story.author.toLowerCase()}@demo.local`, 'kimi-k2.5']
         );
       }
 
+      // Insert story - NO TOKENS_SPENT
       database.run(
-        `INSERT INTO stories (id, title, content, author_id, model_used, character_count, tokens_spent, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-        [story.id, story.title, story.content, demoUserId, story.model, story.content.length, 0]
+        `INSERT INTO stories (id, title, content, author_id, model_used, character_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        [story.id, story.title, story.content, demoUserId, story.model, story.content.length]
       );
     }
   }
 }
 
-// GET /api/stories/:id - Get single story with details
+// GET /api/stories/:id - Get single story with details (PUBLIC)
 export async function getStory(c: Context) {
-  // Try to get auth, but don't require it
-  let auth: { userId: string; email: string } | null = null;
-  const authResult = await requireAuth(c);
-  if (!(authResult instanceof Response)) {
-    auth = authResult;
-  }
-
   const storyId = c.req.param('id');
   if (!storyId) {
     return c.json({ error: 'Story ID required' }, 400);
@@ -214,14 +207,8 @@ export async function getStory(c: Context) {
       ORDER BY c.created_at ASC
     `).all(storyId);
 
-    // Get like count and user like status
+    // Get like count
     const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
-    const userLike = database.query('SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?').get(storyId, auth?.userId);
-
-    // Check if following author
-    const isFollowing = database.query(
-      'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
-    ).get(auth?.userId, story.author_id);
 
     return c.json({
       story: {
@@ -232,13 +219,10 @@ export async function getStory(c: Context) {
         authorName: story.author_name,
         modelUsed: story.model_used,
         characterCount: story.character_count,
-        tokensSpent: story.tokens_spent,
         isCompleted: story.is_completed === 1,
         isPremium: story.is_premium === 1,
         maxContributions: story.max_contributions ?? 50,
         likes: likeCount?.count || 0,
-        userHasLiked: !!userLike,
-        isFollowingAuthor: !!isFollowing,
         contributions: contributions.map((c: any) => ({
           id: c.id,
           storyId: c.story_id,
@@ -246,8 +230,6 @@ export async function getStory(c: Context) {
           authorName: c.author_name,
           content: c.content,
           modelUsed: c.model_used,
-          characterCount: c.character_count,
-          tokensSpent: c.tokens_spent,
           createdAt: c.created_at,
         })),
         createdAt: story.created_at,
@@ -260,11 +242,8 @@ export async function getStory(c: Context) {
   }
 }
 
-// POST /api/stories/:id/like - Like/unlike a story
+// POST /api/stories/:id/like - Like a story (PUBLIC - no auth required, session-based)
 export async function likeStory(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
-
   const storyId = c.req.param('id');
   if (!storyId) {
     return c.json({ error: 'Story ID required' }, 400);
@@ -273,20 +252,26 @@ export async function likeStory(c: Context) {
   try {
     const database = await getDb();
 
+    // Get or create session-based user ID
+    let userId = c.req.header('x-session-id');
+    if (!userId) {
+      userId = 'session_' + Math.random().toString(36).substr(2, 9);
+    }
+
     // Check if already liked
     const existingLike = database.query(
       'SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?'
-    ).get(storyId, auth.userId);
+    ).get(storyId, userId);
 
     if (existingLike) {
       // Unlike
-      database.run('DELETE FROM likes WHERE story_id = ? AND user_id = ?', [storyId, auth.userId]);
+      database.run('DELETE FROM likes WHERE story_id = ? AND user_id = ?', [storyId, userId]);
     } else {
       // Like
       const likeId = `like_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       database.run(
         'INSERT INTO likes (id, story_id, user_id, created_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
-        [likeId, storyId, auth.userId]
+        [likeId, storyId, userId]
       );
     }
 
@@ -296,6 +281,7 @@ export async function likeStory(c: Context) {
     return c.json({
       liked: !existingLike,
       likes: likeCount?.count || 0,
+      sessionId: userId,
     });
   } catch (error) {
     console.error('Error liking story:', error);
@@ -303,11 +289,8 @@ export async function likeStory(c: Context) {
   }
 }
 
-// POST /api/stories/:id/contributions - Add contribution
+// POST /api/stories/:id/contributions - Add contribution (PUBLIC - supports anonymous, agent, and authenticated)
 export async function addContribution(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
-
   const storyId = c.req.param('id');
   if (!storyId) {
     return c.json({ error: 'Story ID required' }, 400);
@@ -315,14 +298,10 @@ export async function addContribution(c: Context) {
 
   try {
     const body = await c.req.json();
-    const { content, modelUsed, characterCount, tokensSpent, maxCharacters } = body;
+    const { content, authorId, authorName } = body;
 
     if (!content?.trim()) {
       return c.json({ error: 'Content is required' }, 400);
-    }
-
-    if (content.length > maxCharacters) {
-      return c.json({ error: 'Content exceeds character limit' }, 400);
     }
 
     const database = await getDb();
@@ -333,47 +312,46 @@ export async function addContribution(c: Context) {
       return c.json({ error: 'Story not found' }, 404);
     }
 
-    // Check user tokens
-    const user = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId);
-    if (tokensSpent > 0 && user.tokens < tokensSpent) {
-      return c.json({ error: 'Insufficient tokens', code: 'INSUFFICIENT_TOKENS' }, 402);
+    // Determine author
+    let finalAuthorId: string;
+    let finalAuthorName: string;
+
+    if (authorId) {
+      // Provided author (agent or anonymous)
+      finalAuthorId = authorId;
+      finalAuthorName = authorName || (authorId.startsWith('agent_') ? 'Agent' : 'Anonymous');
+    } else {
+      // Generate anonymous user
+      finalAuthorId = 'anon_' + Math.random().toString(36).substr(2, 9);
+      finalAuthorName = 'Anonymous';
     }
 
-    // Deduct tokens
-    if (tokensSpent > 0) {
-      database.run('UPDATE users SET tokens = tokens - ? WHERE id = ?', [tokensSpent, auth.userId]);
-      
-      // Log transaction
-      const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Create/get user in database
+    let user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
+    if (!user) {
       database.run(
-        'INSERT INTO token_transactions (id, user_id, amount, type, description, story_id) VALUES (?, ?, ?, ?, ?, ?)',
-        [txId, auth.userId, -tokensSpent, 'spend', 'Contribution to story', storyId]
+        'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+        [finalAuthorId, finalAuthorName, `${finalAuthorId}@storychain.local`, 'kimi-k2.5']
       );
     }
 
     // Create contribution
     const contributionId = `contrib_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     database.run(
-      `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, tokens_spent, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-      [contributionId, storyId, auth.userId, content.trim(), modelUsed, characterCount, tokensSpent]
+      `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [contributionId, storyId, finalAuthorId, content.trim(), 'kimi-k2.5', content.length]
     );
-
-    // Get remaining tokens
-    const updatedUser = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId);
 
     return c.json({
       contribution: {
         id: contributionId,
         storyId,
-        authorId: auth.userId,
+        authorId: finalAuthorId,
+        authorName: finalAuthorName,
         content: content.trim(),
-        modelUsed,
-        characterCount,
-        tokensSpent,
         createdAt: new Date().toISOString(),
       },
-      remainingTokens: updatedUser.tokens,
     }, 201);
   } catch (error) {
     console.error('Error adding contribution:', error);
@@ -420,7 +398,6 @@ export async function getUser(c: Context) {
         id: user.id,
         username: user.username,
         email: user.email,
-        tokens: user.tokens,
         preferredModel: user.preferred_model,
         createdAt: user.created_at,
         storiesCount: storiesCount?.count || 0,

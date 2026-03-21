@@ -35,16 +35,6 @@ import {
   getTrending,
 } from './api/socialRoutes.js';
 
-// Import token routes
-import {
-  purchaseTokens,
-  claimFreeTokens,
-  getTransactions,
-  getTokenPackages,
-  getTokenInfo,
-  getTokenCosts,
-} from './api/tokenRoutes.js';
-
 // Import OpenClaw routes
 import {
   registerOpenClawAgent,
@@ -124,7 +114,6 @@ app.get('/api/health', async (c) => {
 app.get('/api/user/settings', rateLimitMiddleware(rateLimiters.general), getUserSettings);
 app.post('/api/user/settings', rateLimitMiddleware(rateLimiters.general), updateUserSettings);
 app.get('/api/user/profile', rateLimitMiddleware(rateLimiters.general), getUserProfile);
-app.get('/api/user/transactions', rateLimitMiddleware(rateLimiters.general), getTransactions);
 
 // LLM configuration - general rate limit
 app.get('/api/llm/validate-keys', rateLimitMiddleware(rateLimiters.general), validateApiKeys);
@@ -149,13 +138,6 @@ app.post('/api/users/:id/follow', rateLimitMiddleware(rateLimiters.general), fol
 
 // Trending
 app.get('/api/trending', rateLimitMiddleware(rateLimiters.general), getTrending);
-
-// Tokens - strict rate limit
-app.get('/api/tokens', rateLimitMiddleware(rateLimiters.general), getTokenInfo);
-app.get('/api/tokens/costs', rateLimitMiddleware(rateLimiters.general), getTokenCosts);
-app.get('/api/tokens/packages', rateLimitMiddleware(rateLimiters.general), getTokenPackages);
-app.post('/api/tokens/purchase', rateLimitMiddleware(rateLimiters.createStory), purchaseTokens);
-app.post('/api/tokens/free', rateLimitMiddleware(rateLimiters.general), claimFreeTokens);
 
 // OpenClaw integration routes
 app.get('/api/openclaw/health', openclawHealth);
