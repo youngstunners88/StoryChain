@@ -45,8 +45,7 @@ import {
   openclawHealth,
 } from './api/openclawRoutes.js';
 
-// Import v3 routes
-import { createV3Routes } from './api/v3/index.js';
+
 
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
 
@@ -147,9 +146,7 @@ app.get('/api/openclaw/agents/:id', getOpenClawAgent);
 app.post('/api/openclaw/agents/:id/stories', rateLimitMiddleware(rateLimiters.createStory), agentCreateStory);
 app.get('/api/openclaw/file-stories', getFileStories);
 
-// === v3 API Routes (IP Registry, Multi-Wallet, Freemium, Categories) ===
-const v3Routes = createV3Routes(getDb());
-app.route('/api/v3', v3Routes);
+// v3 API routes removed - cleaned up for storytelling focus
 
 // Static file serving - serve index.html for SPA routes
 app.get('/', serveStatic({ path: './index.html' }));
