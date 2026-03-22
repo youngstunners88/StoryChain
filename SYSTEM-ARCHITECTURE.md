@@ -1,14 +1,14 @@
 # StoryChain System Architecture
 
-**Date:** 2026-03-16
-**Version:** 3.0
-**Status:** Infrastructure Built, Frontend Pending
+**Date:** 2026-03-22
+**Version:** 3.0 (Cleaned)
+**Status:** Backend cleaned, Frontend pending
 
 ---
 
 ## Executive Summary
 
-StoryChain is a collaborative storytelling platform with AI-powered agent assistance. It combines human creativity with multi-LLM AI agents to create shared narratives. The platform features a unique time-based freemium model, IP ownership registry, character-based pricing, and multi-wallet payments.
+StoryChain is a collaborative storytelling platform with AI-powered agent assistance. It combines human creativity with multi-LLM AI agents to create shared narratives. The platform focuses on core storytelling functionality: creating stories, expanding stories, liking, commenting, and sharing, with agents available 24/7 to assist via prompts.
 
 ---
 
@@ -21,7 +21,6 @@ StoryChain is a collaborative storytelling platform with AI-powered agent assist
 | StoryFeed | StoryView   |
 | CreateStory | TokenStore|
 | Settings | UserProfile  |
-| IPOwnership| WalletPage |
 +-----------+-------------+
             |
     API GATEWAY (Hono)
@@ -29,17 +28,12 @@ StoryChain is a collaborative storytelling platform with AI-powered agent assist
 +-----------+-------------+
 |     SERVICE LAYER     |
 +-------------------------+
-| Category  | Character  |
-| Service   | Pricing    |
+| Category  | LLM        |
+| Service   | Service    |
 |           |            |
-| IP        | Multi      |
-| Registry  | Wallet     |
+| Editor    | Social     |
+| Agents    | Features   |
 |           |            |
-| Editor    | LLM        |
-| Agents    | Service    |
-|           |            |
-| E-Book    | Social     |
-| Generator | Features   |
 +-----------+-------------+
             |
 +-----------+-------------+
@@ -48,90 +42,27 @@ StoryChain is a collaborative storytelling platform with AI-powered agent assist
 | SQLite    | IPFS       |
 | storychain|(Optional)  |
 +-----------+-------------+
-            |
-+-----------+-------------+
-|   BLOCKCHAIN LAYER    |
-+-------------------------+
-|   Celo    |  Solana    |
-| (Primary) | (Phantom)  |
-|           |            |
-| Ethereum  | WalletConn |
-| (MetaMask)| (Generic)  |
-+-------------------------+
 ```
 
 ---
 
 ## Core Features
 
-### 1. Time-Based Freemium Model
+### 1. Collaborative Storytelling
+- **Story Creation**: Users and agents can create new stories
+- **Story Expansion**: Users and agents can add contributions to existing stories
+- **Social Interactions**: Like, comment, and share stories
+- **Agent Assistance**: Agents can generate story content based on prompts
+- **Multi-LLM Support**: Choose from various AI models (Kimi, Llama, Gemini, etc.)
 
-```
-User Session Flow:
-+--------------------------+
-|  FREE PERIOD (2 hours)   |
-|  - Use all AI agents     |
-|  - 300 char limit/submit |
-|  - Unlimited submissions |
-|  - NO PAYMENT required   |
-|           |              |
-|           v              |
-|  COOLDOWN (3 hours)      |
-|  - CANNOT use agents     |
-|  - CAN read stories      |
-|  - CAN comment/like      |
-|  - Agents LOCKED         |
-|           |              |
-|           v (pay unlock) |
-|  PAID PERIOD             |
-|  - 300 chars: FREE       |
-|  - 700 chars: $0.50      |
-|  - 1600 chars: $1.00     |
-|  - 3900 chars: $2.50     |
-|  - 3900+: $3.00          |
-|           |              |
-|           v              |
-|  [Daily Reset] --------->|
-+--------------------------+
-```
+### 2. Content Categories (Format-Based)
+Stories are organized by format rather than genre, allowing free evolution across genres:
+- Novel, Novella, Short Story, Magazine Article, Blog Post, Screenplay, Poetry, Anthology, Interactive
 
-### 2. Character-Based Pricing
-
-| Characters | Price (cUSD) | Description |
-|------------|--------------|-------------|
-| 0-300 | FREE | Quick thoughts and ideas |
-| 301-700 | $0.50 | Short paragraphs |
-| 701-1600 | $1.00 | Full scene |
-| 1601-3900 | $2.50 | Chapter segment |
-| 3901-4700 | $3.00 | Extended content |
-
-**Note:** Content over 4700 characters must be split across multiple submissions.
-
-### 3. Content Categories (NOT Genres)
-
-| Category | Typical Length | Description |
-|----------|----------------|-------------|
-| Novel | 80,000 words | Long-form fiction |
-| Novella | 30,000 words | Medium fiction |
-| Short Story | 5,000 words | Brief complete narratives |
-| Magazine Article | 2,000 words | Journalistic writing |
-| Blog Post | 1,000 words | Episodic content |
-| Screenplay | 15,000 words | Script format |
-| Poetry | 500 words | Verse and poetic forms |
-| Anthology | 50,000 words | Multi-author collections |
-| Interactive | 10,000 words | Choose-your-path stories |
-
-**NO GENRE LOCK-IN:** Stories can evolve freely across any genre.
-
-### 4. Multi-Wallet Support (15+ Wallets)
-
-**EVM Wallets:** MetaMask, Rabby, TokenPocket, SafePal, Trust Wallet, Coinbase Wallet, WalletConnect
-
-**Solana Wallets:** Phantom, Solflare, Glow
-
-**Cosmos Wallets:** Keplr, Leap
-
-**Payment Methods:** cUSD (Celo), ETH, SOL
+### 3. OpenClaw Integration
+- Seamless integration with OpenClaw agents for automated story generation
+- Agent management via the AlphaClaw setup UI
+- Agents can be triggered to create or expand stories
 
 ---
 
@@ -143,17 +74,9 @@ StoryChain/
 │   ├── api/              # API Routes
 │   │   ├── routes.ts
 │   │   ├── socialRoutes.ts
-│   │   ├── tokenRoutes.ts
-│   │   ├── publishingRoutes.ts
-│   │   ├── categoryRoutes.ts
-│   │   ├── pricingRoutes.ts
-│   │   └── walletRoutes.ts
+│   │   └── openclawRoutes.ts
 │   ├── services/         # Business Logic
 │   │   ├── llmService.ts
-│   │   ├── multiWallet.ts
-│   │   ├── ipRegistry.ts
-│   │   ├── timeTracker.ts
-│   │   ├── characterPricing.ts
 │   │   ├── categoryService.ts
 │   │   ├── editorAgents.ts
 │   │   └── ebookGenerator.ts
@@ -166,14 +89,13 @@ StoryChain/
 │   ├── main.tsx
 │   └── server.ts
 ├── database/
-│   ├── schema-v3.sql
-│   └── schema-v3-categories.sql
+│   ├── schema.sql
+│   └── schema-categories.sql
 ├── data/
 │   └── storychain.db
 ├── docs/
 │   ├── ARCHITECTURE-v3.md
-│   ├── INFRASTRUCTURE-V3.md
-│   └── SECURITY_AUDIT_V2.md
+│   └── INFRASTRUCTURE-V3.md
 ├── tests/
 │   └── api.test.ts
 ├── README.md
@@ -185,6 +107,22 @@ StoryChain/
 
 ## API Endpoints
 
+### Stories
+```
+GET    /api/stories              # List stories (with filters)
+POST   /api/stories              # Create new story
+GET    /api/stories/:id          # Get story details
+POST   /api/stories/:id/like     # Like/unlike story
+POST   /api/stories/:id/contributions  # Add contribution
+```
+
+### Users
+```
+GET    /api/users/:id            # Get user profile
+GET    /api/users/:id/stories    # Get user's stories
+POST   /api/users/:id/follow     # Follow/unfollow user
+```
+
 ### Categories
 ```
 GET    /api/categories              # List all categories
@@ -193,28 +131,20 @@ GET    /api/categories/:slug/stories # Stories in category
 POST   /api/stories/:id/category    # Set story category
 ```
 
-### Character Pricing
+### OpenClaw Integration
 ```
-GET    /api/pricing/tiers           # Get pricing tiers
-POST   /api/pricing/calculate       # Calculate cost
-GET    /api/agents/status           # Check free/paid status
-POST   /api/agents/submit           # Submit content
-GET    /api/user/usage              # Get usage stats
-```
-
-### IP Registry
-```
-POST   /api/v3/ip/register          # Register story IP
-GET    /api/v3/ip/:storyId          # Get IP details
-GET    /api/v3/ip/:storyId/owners   # List fractional owners
-POST   /api/v3/ip/transfer          # Transfer ownership %
+GET    /api/openclaw/health         # OpenClaw gateway health
+GET    /api/openclaw/agents         # List registered OpenClaw agents
+POST   /api/openclaw/agents         # Register new OpenClaw agent
+GET    /api/openclaw/agents/:id     # Get agent details
+POST   /api/openclaw/agents/:id/stories # Trigger agent to create story
+GET    /api/openclaw/file-stories   # Get stories from files
 ```
 
-### Multi-Wallet
+### System
 ```
-POST   /api/v3/wallets/connect      # Connect wallet
-GET    /api/v3/wallets/:userId      # List user's wallets
-POST   /api/v3/wallets/verify       # Verify ownership
+GET    /api/health               # Health check
+GET    /api/llm/models           # List available LLM models
 ```
 
 ---
@@ -228,23 +158,6 @@ POST   /api/v3/wallets/verify       # Verify ownership
 - `likes` - Story likes
 - `follows` - User follows
 
-### IP Tables
-- `ip_registry` - IP registration records
-- `ip_ownership` - Fractional ownership records
-- `commercial_licenses` - Commercial licensing
-- `commercial_revenue_distributions` - Revenue distribution
-
-### Wallet Tables
-- `user_wallets_v3` - Multi-wallet connections
-- `wallet_verification_nonces` - Verification nonces
-
-### Freemium Tables
-- `user_time_sessions` - Session tracking
-- `user_session_state` - Current session state
-- `character_pricing` - Pricing tiers
-- `agent_submissions` - Usage tracking
-- `user_character_usage` - Daily usage stats
-
 ### Category Tables
 - `content_categories` - Category definitions
 - `category_stats` - Category statistics
@@ -254,66 +167,69 @@ POST   /api/v3/wallets/verify       # Verify ownership
 ## What's Missing / Next Steps
 
 ### 1. Frontend Components
-- [ ] WalletConnector.tsx UI
-- [ ] CategoryPicker.tsx UI
-- [ ] PricingDisplay.tsx UI
-- [ ] IPOwnership.tsx page
-- [ ] Session timer display
+- [ ] StoryFeed UI
+- [ ] StoryView UI
+- [ ] CreateStory UI
+- [ ] UserProfile UI
+- [ ] Settings UI
+- [ ] CategoryPicker UI
 
-### 2. Payment Integration
-- [ ] Stripe Connect for fiat
-- [ ] Smart contract for crypto
-- [ ] Payment confirmation flow
+### 2. Agent Integration
+- [ ] UI for managing OpenClaw agents
+- [ ] Prompt interface for agent interactions
+- [ ] Agent-triggered story expansions
 
-### 3. Smart Contracts
-- [ ] IPRegistry.sol (Ethereum/Celo)
-- [ ] RoyaltySplitter.sol
-- [ ] StoryNFT.sol
+### 3. Social Features
+- [ ] Comment threading
+- [ ] Notification system
+- [ ] Trending stories algorithm
 
-### 4. ISBN Integration
-- [ ] ISBN validation API
-- [ ] ISBN assignment
-- [ ] Barcode generation
+### 4. Content Moderation
+- [ ] Reporting system
+- [ ] Content filtering
+- [ ] User reputation system
 
-### 5. NFT Tokenization (Optional)
-- [ ] NFT minting interface
-- [ ] IPFS storage for content
-- [ ] Marketplace integration
-
----
-
-## Key Decisions Needed
-
-1. **Payment Processor:** Stripe for fiat? Direct crypto payments? Both?
-2. **Blockchain for IP:** Celo, Ethereum, or Polygon?
-3. **ISBN Source:** Users provide their own, or skip for now?
-4. **Session Extension Cost:** Currently $2 for 2 hours
-5. **Tokenization Priority:** Launch with NFT books or add later?
+### 5. Performance & Scaling
+- [ ] Caching layer
+- [ ] Database indexing
+- [ ] CDN for static assets
 
 ---
 
-## Comparison: v2 vs v3
+## Key Decisions Made
 
-| Aspect | v2 (Old) | v3 (Current) |
-|--------|----------|--------------|
-| Book IDs | Custom SC-XXXXX | Keep ISBN |
+1. **Agent Access**: Agents are available 24/7 without time limits or payment requirements
+2. **Content Model**: Format-based categories instead of genre constraints
+3. **Monetization**: Zero platform fee, completely free to use
+4. **IP Rights**: Basic attribution; no fractional ownership registry (keeps platform simple)
+5. **Wallet Integration**: Removed; no cryptocurrency or payment features
+6. **Pricing**: Removed; all interactions are free
+
+---
+
+## Comparison: v2 vs v3 (Cleaned)
+
+| Aspect | v2 (Old) | v3 (Current - Cleaned) |
+|--------|----------|------------------------|
+| Book IDs | Custom SC-XXXXX | Keep ISBN (optional) |
 | Tiers | Free/Author/Publisher | NO TIERS - completely free |
-| Agent Access | Per-agent unlock | Time-based + char pricing |
-| Wallet | Celo only | 15+ wallets across chains |
-| Preview | 3/10/30 pages | 2hr free period |
+| Agent Access | Per-agent unlock | 24/7 unlimited agent access |
+| Wallet | Celo only | NO WALLETS - payment features removed |
+| Preview | 3/10/30 pages | UNLIMITED - no time or character limits |
 | Revenue | 10% platform fee | Zero platform fee |
-| IP Rights | Basic attribution | Fractional ownership registry |
+| IP Rights | Basic attribution | Basic attribution only |
 | Genres | Constrained | NO CONSTRAINTS |
 | Categories | Genre-based | Format-based |
+| Social Features | Basic | Like, comment, share, follow |
 
 ---
 
 ## Status
 
-**Infrastructure:** Built and ready
-**Database:** Schema complete
-**Backend Services:** All implemented
+**Backend:** Cleaned and functional (services removed, API routes updated)
+**Database:** Schema simplified
 **Frontend:** Pending component creation
-**Testing:** API tests ready
+**Testing:** API tests need update
 
-**Next:** Frontend components, payment integration, smart contract deployment
+**Next:** Frontend development, agent UI integration, social feature completion
+

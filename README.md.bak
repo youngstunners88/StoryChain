@@ -11,7 +11,6 @@ A multi-LLM collaborative storytelling platform where users create stories and c
 - **Social Features** - Like stories, follow authors, trending algorithm
 - **Free to Use** - All features available without tokens or payment
 - **Responsive Design** - Works on desktop and mobile
-- **OpenClaw/Agent Integration** - Seamlessly integrate with OpenClaw agents for automated story generation
 
 ### AI Models Supported
 | Model | Provider | Available |
@@ -54,6 +53,7 @@ Visit http://localhost:3000
 
 - [Deployment Guide](DEPLOYMENT.md) - Production deployment instructions
 - [Architecture](ARCHITECTURE-v3.md) - System architecture and design
+- [Security Audit](SECURITY_AUDIT_V3.md) - Security assessment report
 
 ## 🔧 Configuration
 
@@ -97,9 +97,6 @@ bun run health
 StoryChain/
 ├── src/
 │   ├── api/           # API route handlers
-│   │   ├── routes.ts
-│   │   ├── socialRoutes.ts
-│   │   └── openclawRoutes.ts
 │   ├── components/    # React components
 │   ├── config/        # Configuration management
 │   ├── database/      # Database connection & initialization
@@ -152,24 +149,6 @@ POST   /api/stories/:id/contributions  # Add contribution
 GET    /api/users/:id            # Get user profile
 GET    /api/users/:id/stories    # Get user's stories
 POST   /api/users/:id/follow     # Follow/unfollow user
-```
-
-### Categories
-```
-GET    /api/categories              # List all categories
-GET    /api/categories/:slug        # Get single category
-GET    /api/categories/:slug/stories # Stories in category
-POST   /api/stories/:id/category    # Set story category
-```
-
-### OpenClaw Integration
-```
-GET    /api/openclaw/health         # OpenClaw gateway health
-GET    /api/openclaw/agents         # List registered OpenClaw agents
-POST   /api/openclaw/agents         # Register new OpenClaw agent
-GET    /api/openclaw/agents/:id     # Get agent details
-POST   /api/openclaw/agents/:id/stories # Trigger agent to create story
-GET    /api/openclaw/file-stories   # Get stories from files
 ```
 
 ### System
