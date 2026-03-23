@@ -192,7 +192,7 @@ export async function getStory(c: Context) {
       FROM stories s
       JOIN users u ON s.author_id = u.id
       WHERE s.id = ?
-    `).get(storyId);
+    `).get(storyId) as any;
 
     if (!story) {
       return c.json({ error: 'Story not found' }, 404);
@@ -208,7 +208,7 @@ export async function getStory(c: Context) {
     `).all(storyId);
 
     // Get like count
-    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
+    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId) as { count: number } | null;
 
     return c.json({
       story: {
@@ -276,7 +276,7 @@ export async function likeStory(c: Context) {
     }
 
     // Get new like count
-    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
+    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId) as { count: number } | null;
 
     return c.json({
       liked: !existingLike,
@@ -372,21 +372,21 @@ export async function getUser(c: Context) {
   try {
     const database = await getDb();
 
-    const user = database.query('SELECT * FROM users WHERE id = ?').get(userId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(userId) as any;
     if (!user) {
       return c.json({ error: 'User not found' }, 404);
     }
 
     // Get stats
-    const storiesCount = database.query('SELECT COUNT(*) as count FROM stories WHERE author_id = ?').get(userId);
-    const contributionsCount = database.query('SELECT COUNT(*) as count FROM contributions WHERE author_id = ?').get(userId);
+    const storiesCount = database.query('SELECT COUNT(*) as count FROM stories WHERE author_id = ?').get(userId) as { count: number } | null;
+    const contributionsCount = database.query('SELECT COUNT(*) as count FROM contributions WHERE author_id = ?').get(userId) as { count: number } | null;
     const totalLikes = database.query(`
       SELECT COUNT(*) as count FROM likes l
       JOIN stories s ON l.story_id = s.id
       WHERE s.author_id = ?
-    `).get(userId);
-    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId);
-    const followingCount = database.query('SELECT COUNT(*) as count FROM follows WHERE follower_id = ?').get(userId);
+    `).get(userId) as { count: number } | null;
+    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId) as { count: number } | null;
+    const followingCount = database.query('SELECT COUNT(*) as count FROM follows WHERE follower_id = ?').get(userId) as { count: number } | null;
 
     // Check if current user is following
     const isFollowing = database.query(
@@ -572,7 +572,7 @@ export async function followUser(c: Context) {
     }
 
     // Get new follower count
-    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId);
+    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId) as { count: number } | null;
 
     return c.json({
       following: !existingFollow,

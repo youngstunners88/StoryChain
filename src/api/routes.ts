@@ -14,6 +14,24 @@ import {
   generateRequestId,
 } from '../utils/errorHandler.js';
 
+interface UserRow {
+  id: string;
+  username: string;
+  email: string;
+  preferred_model: string;
+  auto_purchase_extensions: number;
+}
+
+interface StoryRow {
+  id: string;
+  title: string;
+  content: string;
+  author_id: string;
+  model_used: string;
+  character_count: number;
+  created_at: string;
+}
+
 // Auth middleware - bearer token verification
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
   const auth = c.req.header('authorization');
@@ -39,14 +57,12 @@ async function requireAuth(c: Context): Promise<{ userId: string; email: string 
     );
   }
 
-  const token = auth.slice(7);
-
-  // Accept any token that's at least 20 characters
-  if (!token || token.length < 20) {
+  const token = auth.slice(7).trim();
+  if (!token) {
     const error = createStoryChainError(
       new Error('Invalid token format'),
       'INVALID_TOKEN_FORMAT',
-      { hint: 'Token must be at least 20 characters' }
+      { hint: 'Token cannot be empty' }
     );
     return c.json(
       {
@@ -54,6 +70,48 @@ async function requireAuth(c: Context): Promise<{ userId: string; email: string 
           code: error.code,
           message: error.message,
           details: error.details,
+          retryable: false,
+        },
+        requestId: error.requestId,
+        timestamp: new Date().toISOString(),
+      },
+      401,
+      { 'X-Request-Id': error.requestId }
+    );
+  }
+
+  const expectedToken = config.zoClientIdentityToken;
+  if (!expectedToken) {
+    const error = createStoryChainError(
+      new Error('Identity token not configured'),
+      'UNAUTHORIZED',
+      { hint: 'Set ZO_CLIENT_IDENTITY_TOKEN in environment' }
+    );
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          retryable: false,
+        },
+        requestId: error.requestId,
+        timestamp: new Date().toISOString(),
+      },
+      401,
+      { 'X-Request-Id': error.requestId }
+    );
+  }
+
+  const tokenBytes = Buffer.from(token);
+  const expectedBytes = Buffer.from(expectedToken);
+  if (tokenBytes.length !== expectedBytes.length || !timingSafeEqual(tokenBytes, expectedBytes)) {
+    const error = createStoryChainError(new Error('Unauthorized'), 'UNAUTHORIZED');
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
           retryable: false,
         },
         requestId: error.requestId,
@@ -78,7 +136,7 @@ export async function getUserSettings(c: Context) {
 
   try {
     const database = await getDb();
-    const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId) as UserRow | null;
 
     if (!user) {
       // Create default user - NO TOKENS
@@ -168,7 +226,7 @@ export async function getUserProfile(c: Context) {
 
   try {
     const database = await getDb();
-    let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId) as UserRow | null;
 
     if (!user) {
       // Create default user - NO TOKENS
@@ -176,7 +234,10 @@ export async function getUserProfile(c: Context) {
         'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
-      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId) as UserRow | null;
+      if (!user) {
+        throw createNotFoundError('User', auth.userId);
+      }
     }
 
     const requestId = generateRequestId();
@@ -359,7 +420,7 @@ export async function createStory(c: Context) {
     }
 
     // Create/get user in database - NO TOKENS
-    let user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId) as UserRow | null;
     if (!user) {
       database.run(
         'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
@@ -386,7 +447,7 @@ export async function createStory(c: Context) {
       ]
     );
 
-    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
+    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId) as StoryRow;
     const requestId = generateRequestId();
 
     return c.json(
