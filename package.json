@@ -9,7 +9,7 @@
     "build": "bun run build.ts",
     "test": "bun test",
     "test:api": "bun test tests/api.test.ts",
-    "test:security": "bun test tests/security/security-audit.ts",
+    "test:security": "bun run tests/security/security-audit.ts",
     "test:stress": "bun test tests/stress/stress-test.ts",
     "db:init": "bun run src/database/init.ts",
     "db:backup": "bun run scripts/backup.ts",

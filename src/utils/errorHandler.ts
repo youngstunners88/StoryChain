@@ -2,6 +2,7 @@
 // Provides consistent error responses and logging across StoryChain API
 
 import type { Context } from 'hono';
+import { join } from 'node:path';
 import {
   StoryChainError,
   ERROR_DEFINITIONS,
@@ -146,7 +147,7 @@ export function createStoryChainError(
 export async function logError(context: ErrorLogContext): Promise<void> {
   try {
     const fs = await import('fs/promises');
-    const logPath = '/home/workspace/StoryChain/logs/api-errors.jsonl';
+    const logPath = join(process.cwd(), 'logs', 'api-errors.jsonl');
 
     const logEntry = {
       ...context,
@@ -238,7 +239,7 @@ export function handleApiError(
       requestId: storyChainError.requestId,
       timestamp,
     },
-    storyChainError.statusCode,
+    storyChainError.statusCode as any,
     headers
   );
 }

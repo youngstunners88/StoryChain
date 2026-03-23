@@ -49,7 +49,13 @@ export const HTTP_STATUS_CODES = {
 /**
  * Error codes with their default HTTP status codes and retryability
  */
-export const ERROR_DEFINITIONS = {
+type ErrorDefinition = {
+  status: number;
+  retryable: boolean;
+  retryAfterMs?: number;
+};
+
+export const ERROR_DEFINITIONS: Record<string, ErrorDefinition> = {
   // Authentication errors
   AUTH_FAILURE: { status: 401, retryable: false },
   UNAUTHORIZED: { status: 401, retryable: false },
@@ -90,7 +96,7 @@ export const ERROR_DEFINITIONS = {
   REQUEST_TIMEOUT: { status: 504, retryable: true, retryAfterMs: 3000 },
   NETWORK_ERROR: { status: 502, retryable: true, retryAfterMs: 5000 },
   GATEWAY_ERROR: { status: 502, retryable: true, retryAfterMs: 5000 },
-} as const;
+};
 
 export type ErrorCode = keyof typeof ERROR_DEFINITIONS;
 
@@ -111,6 +117,8 @@ export class StoryChainError extends Error {
     message: string;
     details?: Record<string, unknown>;
     requestId?: string;
+    retryable?: boolean;
+    retryAfterMs?: number;
   }) {
     super(params.message);
     this.name = 'StoryChainError';
@@ -118,8 +126,8 @@ export class StoryChainError extends Error {
 
     const definition = ERROR_DEFINITIONS[params.code] || { status: 500, retryable: false };
     this.statusCode = definition.status;
-    this.retryable = definition.retryable || false;
-    this.retryAfterMs = definition.retryAfterMs;
+    this.retryable = params.retryable ?? definition.retryable ?? false;
+    this.retryAfterMs = params.retryAfterMs ?? definition.retryAfterMs;
     this.requestId = params.requestId || `err_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     this.details = params.details;
 
