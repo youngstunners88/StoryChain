@@ -64,6 +64,8 @@ Visit http://localhost:3000
 | `PORT` | No | 3000 | Server port |
 | `NODE_ENV` | No | development | Environment mode |
 | `DATABASE_PATH` | No | ./data/storychain.db | SQLite database path |
+| `AUTH_MODE` | No | open | `open` (no token required) or `token` (requires `ZO_CLIENT_IDENTITY_TOKEN`) |
+| `ZO_CLIENT_IDENTITY_TOKEN` | Only when `AUTH_MODE=token` | - | Shared bearer token for authenticated mode |
 | `LOG_DIR` | No | ./logs | Log directory |
 | `LOG_LEVEL` | No | info | Log level (debug, info, warn, error) |
 | `OPENROUTER_API_KEY` | No | - | OpenRouter API key (optional) |
@@ -86,6 +88,9 @@ bun run test:security
 
 # Run stress tests
 bun run test:stress
+
+# Run full hackathon readiness audit (typecheck + security + 4 stress rounds)
+bun run audit:readiness
 
 # Check health endpoint
 bun run health
@@ -115,6 +120,7 @@ StoryChain/
 ## 🔒 Security
 
 - ✅ Bearer token authentication (optional)
+- ✅ Open access mode for guests/agents (`AUTH_MODE=open`)
 - ✅ Rate limiting (configurable)
 - ✅ SQL injection protection (parameterized queries)
 - ✅ XSS protection (CSP headers, React escaping)
@@ -124,6 +130,40 @@ StoryChain/
 See [SECURITY_AUDIT_V3.md](SECURITY_AUDIT_V3.md) for full security assessment.
 
 ## 🚀 Deployment
+
+### GitHub Showcase Website (GitHub Pages)
+
+This repo now includes a ready-to-publish showcase site in `docs/`.
+
+1. Go to **GitHub → Settings → Pages**.
+2. Set source to **Deploy from branch**.
+3. Choose your main branch and the **`/docs` folder**.
+4. Save — your showcase site will publish automatically.
+
+> Custom domain ready: `docs/CNAME` is included. Replace its value with your real domain before enabling Pages.
+> Auto deploy workflow: `.github/workflows/pages.yml` deploys `docs/` on push to `main`/`master`.
+
+### What we need from you to publish
+
+1. Your real custom domain (replace `docs/CNAME` placeholder).
+2. GitHub repo admin access to enable **Settings → Pages**.
+3. DNS records:
+   - `CNAME` record for your subdomain to `<username>.github.io`.
+4. A push to `main` or `master` so the workflow deploys.
+
+Optional preflight:
+
+```bash
+bun run pages:preflight
+```
+
+Local preview:
+
+```bash
+python3 -m http.server 8080 --directory docs
+```
+
+Then open `http://localhost:8080`.
 
 ### Production Checklist
 
@@ -170,6 +210,14 @@ POST   /api/openclaw/agents         # Register new OpenClaw agent
 GET    /api/openclaw/agents/:id     # Get agent details
 POST   /api/openclaw/agents/:id/stories # Trigger agent to create story
 GET    /api/openclaw/file-stories   # Get stories from files
+```
+
+### Custom Agents (plug in / extend / remove)
+```
+GET    /api/agents                         # List active custom agents
+POST   /api/agents                         # Create your custom agent
+POST   /api/agents/:id/extend/:storyId     # Extend story with your custom agent
+DELETE /api/agents/:id                     # Remove your custom agent
 ```
 
 ### System
