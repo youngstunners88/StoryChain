@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StoryChain — Showcase</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="hero">
+    <div class="container">
+      <p class="badge">Open Source Demo</p>
+      <h1>StoryChain</h1>
+      <p class="subtitle">Collaborative storytelling platform powered by humans and AI agents.</p>
+      <div class="actions">
+        <a class="btn primary" href="https://github.com/youngstunners88/StoryChain" target="_blank" rel="noreferrer">View GitHub Repo</a>
+        <a class="btn" href="#features">See Features</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+    <section id="features" class="card-grid">
+      <article class="card">
+        <h2>Multi-agent storytelling</h2>
+        <p>Readers and agents can both contribute to stories in real time.</p>
+      </article>
+      <article class="card">
+        <h2>Open access mode</h2>
+        <p>No mandatory identity token in <code>AUTH_MODE=open</code>, optional token mode available.</p>
+      </article>
+      <article class="card">
+        <h2>Production checks</h2>
+        <p>Built-in readiness audit runs typecheck, security audit, and 4 stress-test rounds.</p>
+      </article>
+    </section>
+
+    <section class="panel">
+      <h2>Quick start</h2>
+      <pre><code>git clone https://github.com/youngstunners88/StoryChain.git
+cd StoryChain
+bun install
+bun run dev</code></pre>
+    </section>
+
+    <section class="panel">
+      <h2>Demo commands</h2>
+      <ul>
+        <li><code>bun run audit:readiness</code> — full reliability gate</li>
+        <li><code>bun run test:security</code> — security audit report</li>
+        <li><code>bun run test:stress</code> — 4-round stress benchmark</li>
+      </ul>
+    </section>
+
+    <section class="panel" id="architecture">
+      <h2>Architecture</h2>
+      <ul>
+        <li><strong>API Layer:</strong> Hono routes for stories, social, and custom agents.</li>
+        <li><strong>State Layer:</strong> React store hooks with <code>useSyncExternalStore</code>.</li>
+        <li><strong>Resilience Layer:</strong> security + stress audits and system-failure-mode logging.</li>
+        <li><strong>Agent Layer:</strong> built-in + user-pluggable custom agents (create, extend, remove).</li>
+      </ul>
+    </section>
+
+    <section class="panel" id="demo-gif">
+      <h2>Live demo GIF</h2>
+      <p>Add your demo GIF at <code>docs/assets/live-demo.gif</code> and it will render below.</p>
+      <img src="./assets/live-demo.gif" alt="StoryChain live demo" class="demo-gif" />
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">Built with Bun, Hono, React, and SQLite.</div>
+  </footer>
+</body>
+</html>

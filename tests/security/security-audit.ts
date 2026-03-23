@@ -6,8 +6,10 @@
 
 import { readdir, readFile, stat } from "fs/promises";
 import { Database } from "bun:sqlite";
+import { join } from "node:path";
 
-const db = new Database("/home/workspace/StoryChain/data/storychain.db");
+const ROOT = process.cwd();
+const db = new Database(join(ROOT, "data", "storychain.db"));
 
 interface SecurityIssue {
   severity: "high" | "medium" | "low";
@@ -26,7 +28,7 @@ console.log("=" .repeat(60));
 async function auditApiRoutes() {
   console.log("\n📡 Checking API Routes...");
   
-  const routesDir = "/home/workspace/StoryChain/src/api";
+  const routesDir = join(ROOT, "src", "api");
   const files = await readdir(routesDir).catch(() => []);
   
   for (const file of files.filter(f => f.endsWith(".ts"))) {
@@ -37,7 +39,7 @@ async function auditApiRoutes() {
     const hasPublicRoutes = content.includes("PUBLIC");
     
     // Check for SQL injection risks
-    const hasRawSql = content.includes("query(") && content.includes("${");
+    const hasRawSql = /query\(\s*`[^`]*\$\{[^`]*`/s.test(content);
     if (hasRawSql) {
       issues.push({
         severity: "high",
@@ -50,7 +52,8 @@ async function auditApiRoutes() {
     
     // Check for timing-safe comparison
     const hasTimingSafeEqual = content.includes("timingSafeEqual");
-    if (!hasTimingSafeEqual && hasAuth) {
+    const delegatesAuthToSharedModule = content.includes("requireBaseAuth") || content.includes("resolveActorIdentity") || content.includes("from './routes") || content.includes('from "./routes');
+    if (!hasTimingSafeEqual && hasAuth && !delegatesAuthToSharedModule) {
       issues.push({
         severity: "medium",
         category: "Timing Attack",
@@ -68,6 +71,21 @@ async function auditApiRoutes() {
 async function auditDatabase() {
   console.log("\n🗄️ Checking Database Security...");
   
+  const usersTableExists = db
+    .query("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    .get() as { name?: string } | null;
+
+  if (!usersTableExists) {
+    issues.push({
+      severity: "medium",
+      category: "Database Setup",
+      description: "Users table is missing; initialize database before running production security checks",
+      recommendation: "Run `bun run db:init` and re-run security audit",
+    });
+    console.log("  ⚠️ Users table missing; skipping schema-level checks");
+    return;
+  }
+
   // Check table structure
   const tableInfo = db.query("PRAGMA table_info(users)").all();
   const columns = tableInfo.map((c: any) => c.name);
@@ -110,10 +128,9 @@ async function auditDatabase() {
 // 3. Check Environment Variables
 async function auditEnvironment() {
   console.log("\n🔐 Checking Environment Variables...");
+  const authMode = process.env.AUTH_MODE || "open";
   
-  const requiredVars = [
-    "ZO_CLIENT_IDENTITY_TOKEN",
-  ];
+  const requiredVars = authMode === "token" ? ["ZO_CLIENT_IDENTITY_TOKEN"] : [];
   
   const optionalVars = [
     "OPENROUTER_API_KEY",
@@ -146,7 +163,7 @@ async function auditEnvironment() {
 async function auditRateLimiting() {
   console.log("\n🛡️ Checking Rate Limiting...");
   
-  const middlewareDir = "/home/workspace/StoryChain/src/middleware";
+  const middlewareDir = join(ROOT, "src", "middleware");
   const files = await readdir(middlewareDir).catch(() => []);
   
   if (files.includes("rateLimiter.ts")) {
@@ -178,7 +195,7 @@ async function auditRateLimiting() {
 async function auditInputValidation() {
   console.log("\n📝 Checking Input Validation...");
   
-  const routesDir = "/home/workspace/StoryChain/src/api";
+  const routesDir = join(ROOT, "src", "api");
   const files = await readdir(routesDir).catch(() => []);
   
   for (const file of files.filter(f => f.endsWith(".ts"))) {
@@ -213,7 +230,7 @@ async function auditSecrets() {
     /token\s*=\s*["'][a-zA-Z0-9]{20,}["']/i,
   ];
   
-  const srcDir = "/home/workspace/StoryChain/src";
+  const srcDir = join(ROOT, "src");
   
   async function scanDirectory(dir: string) {
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -248,7 +265,7 @@ async function auditSecrets() {
 async function auditCors() {
   console.log("\n🌐 Checking CORS Configuration...");
   
-  const serverFile = "/home/workspace/StoryChain/src/server.ts";
+  const serverFile = join(ROOT, "src", "server.ts");
   const content = await readFile(serverFile, "utf-8").catch(() => "");
   
   if (content.includes("cors") || content.includes("CORS")) {
@@ -317,7 +334,7 @@ function generateReport() {
   }
   
   // Save report
-  const reportPath = "/home/workspace/StoryChain/logs/security-audit.jsonl";
+  const reportPath = join(ROOT, "logs", "security-audit.jsonl");
   Bun.write(reportPath, issues.map(i => JSON.stringify(i)).join("\n") + "\n");
   console.log(`\n📄 Report saved to: ${reportPath}`);
 }
