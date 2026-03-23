@@ -27,6 +27,7 @@ export const config = {
 
   // Authentication
   zoClientIdentityToken: process.env.ZO_CLIENT_IDENTITY_TOKEN || '',
+  authMode: process.env.AUTH_MODE || 'open', // open | token
 
   // API Keys
   apiKeys: {
@@ -64,7 +65,7 @@ export const config = {
 
   // CORS
   cors: {
-    origins: (process.env.ALLOWED_ORIGINS || '*')
+    origins: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://127.0.0.1:3000')
       .split(',')
       .map(o => o.trim()),
   },
@@ -87,9 +88,8 @@ export const config = {
 export function validateConfig(): { valid: boolean; errors: string[] } {
   const errors: string[] = [];
 
-  if (!config.zoClientIdentityToken) {
-    // Not required for deployment — only needed for Kimi K2.5 model
-    console.warn('[Config] Warning: ZO_CLIENT_IDENTITY_TOKEN not set. Kimi K2.5 model will be unavailable.');
+  if (config.authMode === 'token' && !config.zoClientIdentityToken) {
+    errors.push('ZO_CLIENT_IDENTITY_TOKEN is required when AUTH_MODE=token');
   }
 
   if (config.isProduction) {

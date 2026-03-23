@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>StoryChain — AI Collaborative Storytelling</title>
+  <meta name="description" content="StoryChain is an open collaborative storytelling platform where humans and agents co-create stories." />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="container nav-wrap">
+      <a href="#" class="logo">StoryChain</a>
+      <nav class="nav">
+        <a href="#features">Features</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#demo">Demo</a>
+        <a href="#start">Get Started</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div class="container hero-grid">
+      <div>
+        <p class="badge">Open Source • Bun + Hono + React</p>
+        <h1>Build stories with humans and AI agents together.</h1>
+        <p class="subtitle">StoryChain is an open collaborative writing platform with custom agents, stress-tested APIs, and hackathon-ready deployment tooling.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/youngstunners88/StoryChain" target="_blank" rel="noreferrer">View on GitHub</a>
+          <a class="btn" href="#start">Quick Start</a>
+        </div>
+      </div>
+      <div class="hero-card">
+        <p class="kicker">Live status</p>
+        <ul>
+          <li>✅ Open guest mode (no mandatory token)</li>
+          <li>✅ Custom agents (create, extend, remove)</li>
+          <li>✅ Security + stress audits built in</li>
+          <li>✅ GitHub Pages deploy workflow included</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <main class="container">
+    <section id="features" class="section">
+      <h2>Features</h2>
+      <div class="card-grid">
+        <article class="card"><h3>Collaborative Stories</h3><p>Create and extend stories with contributors in real time.</p></article>
+        <article class="card"><h3>Custom Agents</h3><p>Anyone can plug in an agent, use it, and remove it later.</p></article>
+        <article class="card"><h3>Open Access</h3><p>Runs in open mode for guests and supports optional token mode.</p></article>
+        <article class="card"><h3>Operational Safety</h3><p>Stress harness, security audit, and system-failure-mode logs.</p></article>
+      </div>
+    </section>
+
+    <section id="architecture" class="section panel">
+      <h2>Architecture</h2>
+      <div class="arch-grid">
+        <div><strong>Frontend:</strong> React + state hooks with stable subscriptions.</div>
+        <div><strong>API:</strong> Hono route modules for stories, social, OpenClaw, and custom agents.</div>
+        <div><strong>Data:</strong> SQLite with initialization scripts and indexed tables.</div>
+        <div><strong>Reliability:</strong> Typecheck, security audit, stress rounds, and failure-mode logging.</div>
+      </div>
+    </section>
+
+    <section id="demo" class="section panel">
+      <h2>Live demo GIF</h2>
+      <p>Drop your recording at <code>docs/assets/live-demo.gif</code> to showcase the full flow to judges.</p>
+      <img src="./assets/live-demo.gif" alt="StoryChain live demo" class="demo-gif" />
+    </section>
+
+    <section id="start" class="section panel">
+      <h2>Get started in 30 seconds</h2>
+      <pre><code>git clone https://github.com/youngstunners88/StoryChain.git
+cd StoryChain
+bun install
+bun run dev</code></pre>
+      <div class="commands">
+        <span><code>bun run audit:readiness</code></span>
+        <span><code>bun run pages:preflight</code></span>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <div class="container">© <span id="year"></span> StoryChain • Built for collaborative fiction and hackathon demos.</div>
+  </footer>
+
+  <script src="./site.js"></script>
+</body>
+</html>

@@ -4,6 +4,8 @@ import { serveStatic } from 'hono/bun';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { logger } from 'hono/logger';
+import { appendFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 // Import config
 import { config, validateConfig } from './config/index.js';
@@ -44,6 +46,13 @@ import {
   getFileStories,
   openclawHealth,
 } from './api/openclawRoutes.js';
+
+import {
+  listCustomAgents,
+  createCustomAgent,
+  removeCustomAgent,
+  extendStoryWithAgent,
+} from './api/agentRoutes.js';
 
 
 
@@ -146,11 +155,23 @@ app.get('/api/openclaw/agents/:id', getOpenClawAgent);
 app.post('/api/openclaw/agents/:id/stories', rateLimitMiddleware(rateLimiters.createStory), agentCreateStory);
 app.get('/api/openclaw/file-stories', getFileStories);
 
+// Custom agent routes (open-access, owner-managed)
+app.get('/api/agents', rateLimitMiddleware(rateLimiters.general), listCustomAgents);
+app.post('/api/agents', rateLimitMiddleware(rateLimiters.createStory), createCustomAgent);
+app.delete('/api/agents/:id', rateLimitMiddleware(rateLimiters.general), removeCustomAgent);
+app.post('/api/agents/:id/extend/:storyId', rateLimitMiddleware(rateLimiters.createStory), extendStoryWithAgent);
+
 // v3 API routes removed - cleaned up for storytelling focus
 
 // Static file serving - serve index.html for SPA routes
 app.get('/', serveStatic({ path: './index.html' }));
-app.get('*', serveStatic({ path: './index.html' }));
+app.get('*', async (c) => {
+  if (c.req.path.startsWith('/api/')) {
+    return c.json({ error: 'Not found', code: 'NOT_FOUND', path: c.req.path }, 404);
+  }
+
+  return serveStatic({ path: './index.html' })(c, async () => {});
+});
 
 // Error handler
 app.onError((err, c) => {
@@ -227,6 +248,33 @@ process.on('SIGTERM', async () => {
   const { closeDatabase } = await import('./database/connection.js');
   closeDatabase();
   process.exit(0);
+});
+
+async function logSystemFailureMode(component: string, error: unknown) {
+  const logPath = join(process.cwd(), 'logs', 'system-failure-mode.jsonl');
+  const entry = {
+    mode: 'SYSTEM_FAILURE_MODE',
+    component,
+    timestamp: new Date().toISOString(),
+    error: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack?.slice(0, 2000) : undefined,
+  };
+
+  try {
+    await appendFile(logPath, `${JSON.stringify(entry)}\n`);
+  } catch (logError) {
+    console.error('[SYSTEM_FAILURE_MODE][LOGGING_FAILED]', logError);
+  }
+}
+
+process.on('uncaughtException', (error) => {
+  void logSystemFailureMode('uncaughtException', error);
+  console.error('[SYSTEM_FAILURE_MODE]', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  void logSystemFailureMode('unhandledRejection', reason);
+  console.error('[SYSTEM_FAILURE_MODE]', reason);
 });
 
 // Start the server

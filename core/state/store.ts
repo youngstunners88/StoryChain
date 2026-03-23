@@ -50,15 +50,21 @@ class Store {
   
   // Subscribers
   private listeners = new Set<() => void>();
+  private snapshotVersion = 0;
   
   // Subscribe to changes
   subscribe(fn: () => void): () => void {
     this.listeners.add(fn);
     return () => this.listeners.delete(fn);
   }
+
+  getSnapshot(): number {
+    return this.snapshotVersion;
+  }
   
   // Notify all subscribers
   private notify() {
+    this.snapshotVersion += 1;
     this.listeners.forEach(fn => {
       try { fn(); } catch (e) { console.error('Store subscriber error:', e); }
     });

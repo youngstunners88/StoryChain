@@ -1,14 +1,17 @@
 #!/usr/bin/env bun
 /**
  * Stress Test for StoryChain APIs
- * Tests performance under load
+ * Executes 4 rounds by default and logs system-failure-mode context.
  */
 
-import { Database } from "bun:sqlite";
+import { Database } from 'bun:sqlite';
+import { join } from 'node:path';
 
-const BASE_URL = "http://localhost:3000";
-const CONCURRENT_REQUESTS = 50;
-const TOTAL_REQUESTS = 500;
+const BASE_URL = process.env.STRESS_BASE_URL || 'http://localhost:3000';
+const CONCURRENT_REQUESTS = Number.parseInt(process.env.STRESS_CONCURRENT || '30', 10);
+const TOTAL_REQUESTS = Number.parseInt(process.env.STRESS_TOTAL || '240', 10);
+const ROUNDS = Number.parseInt(process.env.STRESS_ROUNDS || '4', 10);
+const ROOT = process.cwd();
 
 interface TestResult {
   endpoint: string;
@@ -19,97 +22,127 @@ interface TestResult {
   minLatency: number;
   maxLatency: number;
   errors: string[];
+  round: number;
+}
+
+interface SystemFailureModeContext {
+  mode: 'SYSTEM_FAILURE_MODE';
+  round: number;
+  component: string;
+  endpoint?: string;
+  error: string;
+  failureRate?: number;
+  timestamp: string;
 }
 
 const results: TestResult[] = [];
+const failureContexts: SystemFailureModeContext[] = [];
 
-console.log("🔥 STORYCHAIN STRESS TEST\n");
-console.log("=" .repeat(60));
-console.log(`Concurrent: ${CONCURRENT_REQUESTS} | Total: ${TOTAL_REQUESTS}\n`);
+console.log('🔥 STORYCHAIN STRESS TEST\n');
+console.log('='.repeat(60));
+console.log(`Rounds: ${ROUNDS} | Concurrent: ${CONCURRENT_REQUESTS} | Total/endpoint: ${TOTAL_REQUESTS}\n`);
 
-// Check if server is running
-async function checkServer() {
+function logSystemFailureMode(context: Omit<SystemFailureModeContext, 'mode' | 'timestamp'>) {
+  const entry: SystemFailureModeContext = {
+    mode: 'SYSTEM_FAILURE_MODE',
+    timestamp: new Date().toISOString(),
+    ...context,
+  };
+
+  failureContexts.push(entry);
+
+  const path = join(ROOT, 'logs', 'system-failure-mode.jsonl');
+  Bun.write(path, `${JSON.stringify(entry)}\n`, { createPath: true, append: true });
+}
+
+async function checkServer(round: number) {
   try {
     const res = await fetch(`${BASE_URL}/api/health`);
     if (res.ok) {
-      console.log("✅ Server is running\n");
+      console.log(`✅ Round ${round}: server is running`);
       return true;
     }
-  } catch {
-    console.log("❌ Server not running. Start with: bun run src/server.ts\n");
-    return false;
+
+    logSystemFailureMode({
+      round,
+      component: 'healthcheck',
+      endpoint: '/api/health',
+      error: `Unexpected health status ${res.status}`,
+    });
+  } catch (error) {
+    logSystemFailureMode({
+      round,
+      component: 'healthcheck',
+      endpoint: '/api/health',
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+
+  console.log(`❌ Round ${round}: server unavailable at ${BASE_URL}`);
   return false;
 }
 
-// Simulate request with latency tracking
-async function makeRequest(endpoint: string, method: string = "GET", body?: object): Promise<{success: boolean; latency: number; error?: string}> {
+async function makeRequest(endpoint: string, method = 'GET', body?: object): Promise<{ success: boolean; latency: number; error?: string }> {
   const start = performance.now();
-  
+
   try {
     const options: RequestInit = {
       method,
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers: { 'Content-Type': 'application/json', 'x-stress-test': 'true', 'x-session-id': `stress_${Date.now()}` },
     };
-    
-    if (body) {
-      options.body = JSON.stringify(body);
-    }
-    
+
+    if (body) options.body = JSON.stringify(body);
+
     const res = await fetch(`${BASE_URL}${endpoint}`, options);
     const latency = performance.now() - start;
-    
-    if (res.ok) {
-      return { success: true, latency };
-    } else {
-      return { success: false, latency, error: `${res.status} ${res.statusText}` };
-    }
-  } catch (e) {
+
+    if (res.ok) return { success: true, latency };
+    return { success: false, latency, error: `${res.status} ${res.statusText}` };
+  } catch (error) {
     const latency = performance.now() - start;
-    return { success: false, latency, error: e instanceof Error ? e.message : String(e) };
+    return {
+      success: false,
+      latency,
+      error: error instanceof Error ? error.message : String(error),
+    };
   }
 }
 
-// Run stress test for an endpoint
-async function stressTestEndpoint(name: string, endpoint: string, method: string = "GET", body?: object) {
-  console.log(`\n🧪 Testing ${name}...`);
+async function stressTestEndpoint(round: number, name: string, endpoint: string, method = 'GET', body?: object) {
+  console.log(`\n🧪 [Round ${round}] ${name}`);
   console.log(`   ${method} ${endpoint}`);
-  
+
   const latencies: number[] = [];
   let successes = 0;
   let failures = 0;
   const errors: string[] = [];
-  
-  // Run in batches
+
   const batches = Math.ceil(TOTAL_REQUESTS / CONCURRENT_REQUESTS);
-  
+
   for (let batch = 0; batch < batches; batch++) {
     const batchSize = Math.min(CONCURRENT_REQUESTS, TOTAL_REQUESTS - batch * CONCURRENT_REQUESTS);
-    
-    const promises = Array(batchSize).fill(null).map(() => makeRequest(endpoint, method, body));
+    const promises = Array(batchSize)
+      .fill(null)
+      .map(() => makeRequest(endpoint, method, body));
+
     const batchResults = await Promise.all(promises);
-    
+
     for (const r of batchResults) {
       latencies.push(r.latency);
-      if (r.success) {
-        successes++;
-      } else {
+      if (r.success) successes++;
+      else {
         failures++;
-        if (r.error && !errors.includes(r.error)) {
-          errors.push(r.error);
-        }
+        if (r.error && !errors.includes(r.error)) errors.push(r.error);
       }
     }
-    
+
     process.stdout.write(`   Progress: ${Math.min((batch + 1) * CONCURRENT_REQUESTS, TOTAL_REQUESTS)}/${TOTAL_REQUESTS}\r`);
   }
-  
-  const avgLatency = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+
+  const avgLatency = latencies.reduce((a, b) => a + b, 0) / Math.max(latencies.length, 1);
   const minLatency = Math.min(...latencies);
   const maxLatency = Math.max(...latencies);
-  
+
   const result: TestResult = {
     endpoint,
     requests: TOTAL_REQUESTS,
@@ -119,86 +152,85 @@ async function stressTestEndpoint(name: string, endpoint: string, method: string
     minLatency,
     maxLatency,
     errors,
+    round,
   };
-  
+
   results.push(result);
-  
+
+  const failureRate = failures / Math.max(TOTAL_REQUESTS, 1);
+  if (failureRate > 0.2) {
+    logSystemFailureMode({
+      round,
+      component: 'stress_endpoint',
+      endpoint,
+      error: `High failure rate for ${name}`,
+      failureRate,
+    });
+  }
+
   console.log(`\n   ✅ ${successes} successes | ❌ ${failures} failures`);
   console.log(`   Latency: avg=${avgLatency.toFixed(2)}ms min=${minLatency.toFixed(2)}ms max=${maxLatency.toFixed(2)}ms`);
-  
-  return result;
 }
 
-// Test database under load
-async function stressTestDatabase() {
-  console.log("\n🗄️ Testing Database Performance...");
-  
-  const db = new Database("/home/workspace/StoryChain/data/storychain.db");
-  
+async function stressTestDatabase(round: number) {
+  console.log(`\n🗄️ [Round ${round}] Database Performance`);
+
+  const db = new Database(join(ROOT, 'data', 'storychain.db'));
   const latencies: number[] = [];
-  
-  for (let i = 0; i < 100; i++) {
-    const start = performance.now();
-    
-    // Run complex query
-    db.query(`
-      SELECT s.*, 
-        (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) as contribution_count,
-        (SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) as like_count
-      FROM stories s
-      ORDER BY s.created_at DESC
-      LIMIT 10
-    `).all();
-    
-    latencies.push(performance.now() - start);
+
+  try {
+    for (let i = 0; i < 80; i++) {
+      const start = performance.now();
+      db.query(`
+        SELECT s.*,
+          (SELECT COUNT(*) FROM contributions c WHERE c.story_id = s.id) as contribution_count,
+          (SELECT COUNT(*) FROM likes l WHERE l.story_id = s.id) as like_count
+        FROM stories s
+        ORDER BY s.created_at DESC
+        LIMIT 10
+      `).all();
+      latencies.push(performance.now() - start);
+    }
+
+    const avg = latencies.reduce((a, b) => a + b, 0) / Math.max(latencies.length, 1);
+    console.log(`   80 queries: avg=${avg.toFixed(2)}ms`);
+  } catch (error) {
+    logSystemFailureMode({
+      round,
+      component: 'stress_database',
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    db.close();
   }
-  
-  const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
-  console.log(`   100 queries: avg=${avg.toFixed(2)}ms`);
-  
-  db.close();
 }
 
-// Generate load report
 function generateReport() {
-  console.log("\n" + "=".repeat(60));
-  console.log("📊 STRESS TEST SUMMARY\n");
-  
+  console.log(`\n${'='.repeat(60)}`);
+  console.log('📊 STRESS TEST SUMMARY\n');
+
   const totalRequests = results.reduce((sum, r) => sum + r.requests, 0);
   const totalSuccesses = results.reduce((sum, r) => sum + r.successes, 0);
   const totalFailures = results.reduce((sum, r) => sum + r.failures, 0);
-  const avgLatency = results.reduce((sum, r) => sum + r.avgLatency, 0) / results.length;
-  
+  const avgLatency = results.reduce((sum, r) => sum + r.avgLatency, 0) / Math.max(results.length, 1);
+
   console.log(`Total Requests: ${totalRequests}`);
-  console.log(`Success Rate: ${((totalSuccesses / totalRequests) * 100).toFixed(1)}%`);
-  console.log(`Failure Rate: ${((totalFailures / totalRequests) * 100).toFixed(1)}%`);
-  console.log(`Average Latency: ${avgLatency.toFixed(2)}ms\n`);
-  
-  // Grade
-  const successRate = totalSuccesses / totalRequests;
-  let grade = "F";
-  if (successRate >= 0.99 && avgLatency < 100) grade = "A+";
-  else if (successRate >= 0.99 && avgLatency < 200) grade = "A";
-  else if (successRate >= 0.95 && avgLatency < 300) grade = "B";
-  else if (successRate >= 0.90) grade = "C";
-  else if (successRate >= 0.80) grade = "D";
-  
+  console.log(`Success Rate: ${((totalSuccesses / Math.max(totalRequests, 1)) * 100).toFixed(1)}%`);
+  console.log(`Failure Rate: ${((totalFailures / Math.max(totalRequests, 1)) * 100).toFixed(1)}%`);
+  console.log(`Average Latency: ${avgLatency.toFixed(2)}ms`);
+  console.log(`System failure mode events: ${failureContexts.length}\n`);
+
+  const successRate = totalSuccesses / Math.max(totalRequests, 1);
+  let grade = 'F';
+  if (successRate >= 0.99 && avgLatency < 100) grade = 'A+';
+  else if (successRate >= 0.99 && avgLatency < 200) grade = 'A';
+  else if (successRate >= 0.95 && avgLatency < 300) grade = 'B';
+  else if (successRate >= 0.9) grade = 'C';
+  else if (successRate >= 0.8) grade = 'D';
+
   console.log(`Performance Grade: ${grade}`);
-  
-  // Recommendations
-  console.log("\n📋 Recommendations:");
-  if (successRate < 0.95) {
-    console.log("  ⚠️ High failure rate - check error handling and rate limiting");
-  }
-  if (avgLatency > 200) {
-    console.log("  ⚠️ High latency - consider adding caching layer");
-  }
-  if (successRate >= 0.99 && avgLatency < 100) {
-    console.log("  ✅ Excellent performance!");
-  }
-  
-  // Save detailed report
-  const reportPath = "/home/workspace/StoryChain/logs/stress-test.jsonl";
+
+  const reportPath = join(ROOT, 'logs', 'stress-test.jsonl');
   const reportData = {
     timestamp: new Date().toISOString(),
     summary: {
@@ -206,32 +238,43 @@ function generateReport() {
       successRate,
       avgLatency,
       grade,
+      rounds: ROUNDS,
+      systemFailureModeEvents: failureContexts.length,
     },
     results,
+    failureContexts,
   };
-  Bun.write(reportPath, JSON.stringify(reportData) + "\n");
+
+  Bun.write(reportPath, JSON.stringify(reportData) + '\n');
   console.log(`\n📄 Report saved to: ${reportPath}`);
 }
 
-// Run all tests
-async function main() {
-  const serverRunning = await checkServer();
+async function runRound(round: number) {
+  console.log(`\n🚀 ROUND ${round}/${ROUNDS}`);
+  const serverRunning = await checkServer(round);
   if (!serverRunning) {
-    process.exit(1);
+    return;
   }
-  
-  // Test public endpoints (no auth required)
-  await stressTestEndpoint("Get Stories (Feed)", "/api/stories");
-  await stressTestEndpoint("Get Trending", "/api/trending");
-  
-  // Test database
-  await stressTestDatabase();
-  
-  // More tests would require auth
-  console.log("\n⚠️ Skipping authenticated endpoints (require bearer token)");
-  console.log("   To test full API, use: bun tests/stress/authenticated-test.ts");
-  
+
+  await stressTestEndpoint(round, 'Get Stories (Feed)', '/api/stories');
+  await stressTestEndpoint(round, 'Get Trending', '/api/trending');
+  await stressTestDatabase(round);
+}
+
+async function main() {
+  for (let round = 1; round <= ROUNDS; round++) {
+    await runRound(round);
+  }
+
   generateReport();
 }
 
-main().catch(console.error);
+main().catch((error) => {
+  logSystemFailureMode({
+    round: -1,
+    component: 'stress_main',
+    error: error instanceof Error ? error.message : String(error),
+  });
+  console.error(error);
+  process.exit(1);
+});

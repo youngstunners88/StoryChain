@@ -51,7 +51,7 @@ export function StoryCard({ story, onLike }: Props) {
   
   return (
     <a 
-      href={`#story/${story.id}`}
+      href={`/story/${story.id}`}
       className="group bg-zinc-900 rounded-xl border border-zinc-800 p-5 hover:border-amber-500/50 transition-all block"
     >
       <div className="flex items-start justify-between mb-3">

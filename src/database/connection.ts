@@ -114,6 +114,18 @@ export async function initializeDatabase(): Promise<void> {
       FOREIGN KEY (user_id) REFERENCES users(id)
     );
 
+    -- API token registry (hashed external tokens / integration keys)
+    CREATE TABLE IF NOT EXISTS api_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL,
+      label TEXT,
+      expires_at DATETIME,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      revoked_at DATETIME,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
     -- Create indexes for better performance
     CREATE INDEX IF NOT EXISTS idx_stories_author ON stories(author_id);
     CREATE INDEX IF NOT EXISTS idx_stories_created ON stories(created_at);
@@ -125,6 +137,8 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_transactions_user ON token_transactions(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_usage_user ON api_usage(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_user ON api_tokens(user_id);
+    CREATE INDEX IF NOT EXISTS idx_api_tokens_expires ON api_tokens(expires_at);
   `);
 
   console.log('[Database] Tables initialized successfully');
