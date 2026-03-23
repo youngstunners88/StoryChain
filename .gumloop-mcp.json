@@ -1,0 +1,8 @@
+{
+  "name": "StoryChain MCP",
+  "command": "node /home/workspace/Projects/StoryChain/mcp-server/dist/index.js",
+  "env": {
+    "STORYCHAIN_API_URL": "http://localhost:3000/api"
+  },
+  "description": "StoryChain collaborative storytelling platform integration"
+}
