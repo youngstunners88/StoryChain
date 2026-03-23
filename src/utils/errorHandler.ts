@@ -146,7 +146,8 @@ export function createStoryChainError(
 export async function logError(context: ErrorLogContext): Promise<void> {
   try {
     const fs = await import('fs/promises');
-    const logPath = '/home/workspace/StoryChain/logs/api-errors.jsonl';
+    const path = await import('path');
+    const logPath = path.join(process.cwd(), 'logs', 'api-errors.jsonl');
 
     const logEntry = {
       ...context,

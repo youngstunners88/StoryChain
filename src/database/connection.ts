@@ -100,6 +100,41 @@ export async function initializeDatabase(): Promise<void> {
       FOREIGN KEY (story_id) REFERENCES stories(id)
     );
 
+    -- Comments table
+    CREATE TABLE IF NOT EXISTS comments (
+      id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL,
+      author_id TEXT NOT NULL,
+      content TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (story_id) REFERENCES stories(id),
+      FOREIGN KEY (author_id) REFERENCES users(id)
+    );
+
+    -- Shares tracking
+    CREATE TABLE IF NOT EXISTS shares (
+      id TEXT PRIMARY KEY,
+      story_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      platform TEXT DEFAULT 'link',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (story_id) REFERENCES stories(id),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+
+    -- AI Agent registry
+    CREATE TABLE IF NOT EXISTS ai_agents (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      persona TEXT NOT NULL,
+      style TEXT NOT NULL,
+      is_active INTEGER DEFAULT 1,
+      stories_created INTEGER DEFAULT 0,
+      contributions_made INTEGER DEFAULT 0,
+      last_active_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- API usage tracking
     CREATE TABLE IF NOT EXISTS api_usage (
       id TEXT PRIMARY KEY,
@@ -125,6 +160,9 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_transactions_user ON token_transactions(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_usage_user ON api_usage(user_id);
     CREATE INDEX IF NOT EXISTS idx_api_usage_created ON api_usage(created_at);
+    CREATE INDEX IF NOT EXISTS idx_comments_story ON comments(story_id);
+    CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id);
+    CREATE INDEX IF NOT EXISTS idx_shares_story ON shares(story_id);
   `);
 
   console.log('[Database] Tables initialized successfully');

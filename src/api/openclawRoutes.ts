@@ -13,17 +13,8 @@ import {
   generateRequestId,
 } from '../utils/errorHandler';
 
-// Database connection
-let db: any = null;
-
-async function getDb() {
-  if (!db) {
-    const { Database } = await import('bun:sqlite');
-    db = new Database('/home/workspace/StoryChain/data/storychain.db');
-    db.run('PRAGMA foreign_keys = ON');
-  }
-  return db;
-}
+// Database connection - use centralized connection
+import { getDb } from '../database/connection.js';
 
 // Auth middleware
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
@@ -80,7 +71,7 @@ async function requireAuth(c: Context): Promise<{ userId: string; email: string 
 }
 
 // OpenClaw directory
-const OPENCLAW_DIR = '/home/workspace/StoryChain/openclaw';
+const OPENCLAW_DIR = join(process.cwd(), 'openclaw');
 
 // POST /api/openclaw/agents - Register new OpenClaw agent
 export async function registerOpenClawAgent(c: Context) {

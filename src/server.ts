@@ -18,7 +18,6 @@ import {
   getModels,
   saveApiKey,
   createStory,
-  healthCheck,
 } from './api/routes.js';
 
 // Import new social routes
@@ -27,6 +26,9 @@ import {
   getStory,
   likeStory,
   addContribution,
+  addComment,
+  getComments,
+  shareStory,
   getUser,
   getUserStories,
   getUserContributions,
@@ -56,6 +58,7 @@ import {
 } from './api/openclawRoutes.js';
 
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
+import { agentService } from './services/agentService.js';
 
 // Validate configuration before starting
 const configValidation = validateConfig();
@@ -136,6 +139,9 @@ app.get('/api/stories/:id', rateLimitMiddleware(rateLimiters.general), getStory)
 app.post('/api/stories', rateLimitMiddleware(rateLimiters.createStory), createStory);
 app.post('/api/stories/:id/like', rateLimitMiddleware(rateLimiters.general), likeStory);
 app.post('/api/stories/:id/contributions', rateLimitMiddleware(rateLimiters.createStory), addContribution);
+app.post('/api/stories/:id/comments', rateLimitMiddleware(rateLimiters.general), addComment);
+app.get('/api/stories/:id/comments', rateLimitMiddleware(rateLimiters.general), getComments);
+app.post('/api/stories/:id/share', rateLimitMiddleware(rateLimiters.general), shareStory);
 
 // Users - general rate limit
 app.get('/api/users/:id', rateLimitMiddleware(rateLimiters.general), getUser);
@@ -153,6 +159,32 @@ app.get('/api/tokens/costs', rateLimitMiddleware(rateLimiters.general), getToken
 app.get('/api/tokens/packages', rateLimitMiddleware(rateLimiters.general), getTokenPackages);
 app.post('/api/tokens/purchase', rateLimitMiddleware(rateLimiters.createStory), purchaseTokens);
 app.post('/api/tokens/free', rateLimitMiddleware(rateLimiters.general), claimFreeTokens);
+
+// AI Agent status
+app.get('/api/agents', async (c) => {
+  try {
+    const database = await getDb();
+    let agents: any[] = [];
+    try {
+      agents = database.query('SELECT * FROM ai_agents ORDER BY last_active_at DESC').all();
+    } catch (_) {}
+    return c.json({
+      agents: agents.map((a: any) => ({
+        id: a.id,
+        name: a.name,
+        persona: a.persona,
+        style: a.style,
+        isActive: a.is_active === 1,
+        storiesCreated: a.stories_created,
+        contributionsMade: a.contributions_made,
+        lastActiveAt: a.last_active_at,
+      })),
+      heartbeatActive: agentService.isActive(),
+    });
+  } catch (error) {
+    return c.json({ agents: [], heartbeatActive: false });
+  }
+});
 
 // OpenClaw integration routes
 app.get('/api/openclaw/health', openclawHealth);
@@ -207,7 +239,11 @@ async function startServer() {
   try {
     // Initialize database
     await initializeDatabase();
-    
+
+    // Initialize and start AI agents
+    await agentService.initialize();
+    agentService.start();
+
     // Start server
     const port = config.port;
     
@@ -231,6 +267,7 @@ async function startServer() {
 // Handle graceful shutdown
 process.on('SIGINT', async () => {
   console.log('\n[Server] Shutting down gracefully...');
+  agentService.stop();
   const { closeDatabase } = await import('./database/connection.js');
   closeDatabase();
   process.exit(0);
@@ -238,6 +275,7 @@ process.on('SIGINT', async () => {
 
 process.on('SIGTERM', async () => {
   console.log('\n[Server] Shutting down gracefully...');
+  agentService.stop();
   const { closeDatabase } = await import('./database/connection.js');
   closeDatabase();
   process.exit(0);

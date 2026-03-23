@@ -223,6 +223,25 @@ export async function getStory(c: Context) {
       'SELECT 1 FROM follows WHERE follower_id = ? AND following_id = ?'
     ).get(auth?.userId, story.author_id);
 
+    // Get comments
+    let comments: any[] = [];
+    try {
+      comments = database.query(`
+        SELECT c.*, u.username as author_name
+        FROM comments c
+        JOIN users u ON c.author_id = u.id
+        WHERE c.story_id = ?
+        ORDER BY c.created_at DESC
+      `).all(storyId);
+    } catch (_) { /* comments table may not exist yet */ }
+
+    // Get share count
+    let shareCount = 0;
+    try {
+      const sc = database.query('SELECT COUNT(*) as count FROM shares WHERE story_id = ?').get(storyId);
+      shareCount = sc?.count || 0;
+    } catch (_) { /* shares table may not exist yet */ }
+
     return c.json({
       story: {
         id: story.id,
@@ -239,6 +258,7 @@ export async function getStory(c: Context) {
         likes: likeCount?.count || 0,
         userHasLiked: !!userLike,
         isFollowingAuthor: !!isFollowing,
+        shareCount,
         contributions: contributions.map((c: any) => ({
           id: c.id,
           storyId: c.story_id,
@@ -248,6 +268,14 @@ export async function getStory(c: Context) {
           modelUsed: c.model_used,
           characterCount: c.character_count,
           tokensSpent: c.tokens_spent,
+          createdAt: c.created_at,
+        })),
+        comments: comments.map((c: any) => ({
+          id: c.id,
+          storyId: c.story_id,
+          authorId: c.author_id,
+          authorName: c.author_name,
+          content: c.content,
           createdAt: c.created_at,
         })),
         createdAt: story.created_at,
@@ -335,6 +363,9 @@ export async function addContribution(c: Context) {
 
     // Check user tokens
     const user = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId);
+    if (!user) {
+      return c.json({ error: 'User not found' }, 404);
+    }
     if (tokensSpent > 0 && user.tokens < tokensSpent) {
       return c.json({ error: 'Insufficient tokens', code: 'INSUFFICIENT_TOKENS' }, 402);
     }
@@ -604,6 +635,125 @@ export async function followUser(c: Context) {
   } catch (error) {
     console.error('Error following user:', error);
     return c.json({ error: 'Failed to follow user' }, 500);
+  }
+}
+
+// POST /api/stories/:id/comments - Add a comment
+export async function addComment(c: Context) {
+  const auth = await requireAuth(c);
+  if (auth instanceof Response) return auth;
+
+  const storyId = c.req.param('id');
+  if (!storyId) return c.json({ error: 'Story ID required' }, 400);
+
+  try {
+    const body = await c.req.json();
+    const { content } = body;
+
+    if (!content?.trim()) return c.json({ error: 'Comment content is required' }, 400);
+    if (content.length > 1000) return c.json({ error: 'Comment must be under 1000 characters' }, 400);
+
+    const database = await getDb();
+
+    // Verify story exists
+    const story = database.query('SELECT 1 FROM stories WHERE id = ?').get(storyId);
+    if (!story) return c.json({ error: 'Story not found' }, 404);
+
+    // Ensure user exists
+    let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    if (!user) {
+      database.run(
+        'INSERT INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
+        [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5']
+      );
+      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    }
+
+    const commentId = `comment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    database.run(
+      'INSERT INTO comments (id, story_id, author_id, content, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)',
+      [commentId, storyId, auth.userId, content.trim()]
+    );
+
+    return c.json({
+      comment: {
+        id: commentId,
+        storyId,
+        authorId: auth.userId,
+        authorName: user.username,
+        content: content.trim(),
+        createdAt: new Date().toISOString(),
+      },
+    }, 201);
+  } catch (error) {
+    console.error('Error adding comment:', error);
+    return c.json({ error: 'Failed to add comment' }, 500);
+  }
+}
+
+// GET /api/stories/:id/comments - Get comments for a story
+export async function getComments(c: Context) {
+  const storyId = c.req.param('id');
+  if (!storyId) return c.json({ error: 'Story ID required' }, 400);
+
+  try {
+    const database = await getDb();
+
+    const comments = database.query(`
+      SELECT c.*, u.username as author_name
+      FROM comments c
+      JOIN users u ON c.author_id = u.id
+      WHERE c.story_id = ?
+      ORDER BY c.created_at DESC
+    `).all(storyId);
+
+    return c.json({
+      comments: comments.map((c: any) => ({
+        id: c.id,
+        storyId: c.story_id,
+        authorId: c.author_id,
+        authorName: c.author_name,
+        content: c.content,
+        createdAt: c.created_at,
+      })),
+    });
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    return c.json({ error: 'Failed to fetch comments' }, 500);
+  }
+}
+
+// POST /api/stories/:id/share - Track a share
+export async function shareStory(c: Context) {
+  // Try to get auth, but don't require it
+  let userId = 'anonymous';
+  const authResult = await requireAuth(c);
+  if (!(authResult instanceof Response)) {
+    userId = authResult.userId;
+  }
+
+  const storyId = c.req.param('id');
+  if (!storyId) return c.json({ error: 'Story ID required' }, 400);
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const database = await getDb();
+
+    const shareId = `share_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    database.run(
+      'INSERT INTO shares (id, story_id, user_id, platform, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)',
+      [shareId, storyId, userId, body.platform || 'link']
+    );
+
+    const shareCount = database.query('SELECT COUNT(*) as count FROM shares WHERE story_id = ?').get(storyId);
+
+    return c.json({
+      shared: true,
+      shareCount: shareCount?.count || 0,
+    });
+  } catch (error) {
+    console.error('Error sharing story:', error);
+    return c.json({ error: 'Failed to share story' }, 500);
   }
 }
 

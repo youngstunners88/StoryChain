@@ -59,7 +59,7 @@ export async function purchaseTokens(c: Context) {
 
     return c.json({
       success: true,
-      newBalance: user.tokens,
+      newBalance: user?.tokens ?? 0,
       tokensPurchased: tokens,
     });
   } catch (error) {
@@ -116,7 +116,7 @@ export async function claimFreeTokens(c: Context) {
     return c.json({
       success: true,
       tokensGranted: freeTokens,
-      newBalance: user.tokens,
+      newBalance: user?.tokens ?? 0,
       nextClaimAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
     });
   } catch (error) {
