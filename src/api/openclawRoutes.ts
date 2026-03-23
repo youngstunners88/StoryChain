@@ -5,6 +5,8 @@
 import type { Context } from 'hono';
 import { readdir, readFile, writeFile, mkdir } from 'fs/promises';
 import { join } from 'path';
+import { getDb as getSharedDb } from '../database/connection.js';
+import { requireAuth as requireBaseAuth } from './routes.js';
 import {
   handleApiError,
   createStoryChainError,
@@ -13,74 +15,16 @@ import {
   generateRequestId,
 } from '../utils/errorHandler';
 
-// Database connection
-let db: any = null;
-
 async function getDb() {
-  if (!db) {
-    const { Database } = await import('bun:sqlite');
-    db = new Database('/home/workspace/StoryChain/data/storychain.db');
-    db.run('PRAGMA foreign_keys = ON');
-  }
-  return db;
+  return getSharedDb();
 }
 
-// Auth middleware
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) {
-    const error = createStoryChainError(
-      new Error('Missing authorization header'),
-      'UNAUTHORIZED',
-      { hint: 'Include "Authorization: Bearer <token>" header' }
-    );
-    return c.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          retryable: false,
-        },
-        requestId: error.requestId,
-        timestamp: new Date().toISOString(),
-      },
-      401,
-      { 'X-Request-Id': error.requestId }
-    );
-  }
-
-  const token = auth.slice(7);
-  if (!token || token.length < 20) {
-    const error = createStoryChainError(
-      new Error('Invalid token format'),
-      'INVALID_TOKEN_FORMAT',
-      { hint: 'Token must be at least 20 characters' }
-    );
-    return c.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          retryable: false,
-        },
-        requestId: error.requestId,
-        timestamp: new Date().toISOString(),
-      },
-      401,
-      { 'X-Request-Id': error.requestId }
-    );
-  }
-
-  const userId = 'user_' + token.slice(-16);
-  const email = 'user@storychain.local';
-
-  return { userId, email };
+  return requireBaseAuth(c);
 }
 
 // OpenClaw directory
-const OPENCLAW_DIR = '/home/workspace/StoryChain/openclaw';
+const OPENCLAW_DIR = join(process.cwd(), 'openclaw');
 
 // POST /api/openclaw/agents - Register new OpenClaw agent
 export async function registerOpenClawAgent(c: Context) {
@@ -203,9 +147,12 @@ export async function listOpenClawAgents(c: Context) {
 export async function getOpenClawAgent(c: Context) {
   try {
     const agentId = c.req.param('id');
+    if (!agentId) {
+      throw createValidationError('Agent id is required', 'id');
+    }
     const database = await getDb();
 
-    const agent = database.query('SELECT * FROM user_agents WHERE id = ?').get(agentId);
+    const agent = database.query('SELECT * FROM user_agents WHERE id = ?').get(agentId) as any;
     if (!agent) {
       throw createNotFoundError('Agent', agentId);
     }
@@ -213,7 +160,7 @@ export async function getOpenClawAgent(c: Context) {
     // Get stats
     const storiesCount = database.query(
       'SELECT COUNT(*) as count FROM stories WHERE author_id = ?'
-    ).get(agentId);
+    ).get(agentId) as { count: number } | null;
 
     const requestId = generateRequestId();
     return c.json(
@@ -246,6 +193,9 @@ export async function agentCreateStory(c: Context) {
 
   try {
     const agentId = c.req.param('id');
+    if (!agentId) {
+      throw createValidationError('Agent id is required', 'id');
+    }
     const body = await c.req.json();
     const { title, content, model_used } = body;
 
@@ -258,7 +208,7 @@ export async function agentCreateStory(c: Context) {
     const database = await getDb();
 
     // Verify agent exists and is active
-    const agent = database.query('SELECT * FROM user_agents WHERE id = ?').get(agentId);
+    const agent = database.query('SELECT * FROM user_agents WHERE id = ?').get(agentId) as any;
     if (!agent) {
       throw createNotFoundError('Agent', agentId);
     }
@@ -325,8 +275,12 @@ export async function getFileStories(c: Context) {
         // Simple YAML parsing
         const story: any = { id: storyId, source: 'file', path: storyPath };
         for (const line of content.split('\n')) {
-          if (line.startsWith('title: ')) story.title = line.split(': ')[1].replace(/"/g, '');
-          if (line.startsWith('status: ')) story.status = line.split(': ')[1];
+          if (line.startsWith('title: ')) {
+            story.title = (line.split(': ')[1] ?? '').replace(/"/g, '');
+          }
+          if (line.startsWith('status: ')) {
+            story.status = line.split(': ')[1] ?? 'unknown';
+          }
         }
         stories.push(story);
       } catch {
@@ -354,7 +308,7 @@ export async function getFileStories(c: Context) {
 export async function openclawHealth(c: Context) {
   try {
     const database = await getDb();
-    const agentCount = database.query('SELECT COUNT(*) as count FROM user_agents').get();
+    const agentCount = database.query('SELECT COUNT(*) as count FROM user_agents').get() as { count: number } | null;
 
     const requestId = generateRequestId();
     return c.json(

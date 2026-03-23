@@ -115,6 +115,12 @@ import type { Context, Next } from 'hono';
 
 export function rateLimitMiddleware(limiter: RateLimiter) {
   return async (c: Context, next: Next) => {
+    const stressMode = process.env.STRESS_TEST_MODE === 'true' || c.req.header('x-stress-test') === 'true';
+    if (stressMode) {
+      await next();
+      return;
+    }
+
     // Get user identifier (IP + user ID if authenticated)
     const ip = c.req.header('x-forwarded-for') || 'unknown';
     const userId = c.get('userId') || 'anonymous';

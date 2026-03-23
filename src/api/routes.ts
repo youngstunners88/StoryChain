@@ -2,10 +2,11 @@
 import type { Context } from 'hono';
 import { llmService } from '../services/llmService.js';
 import { DEFAULT_CHARACTER_EXTENSION, LLM_MODELS, ApiError } from '../types/index.js';
-import { timingSafeEqual } from 'node:crypto';
 import { getDb } from '../database/connection.js';
 import { config } from '../config/index.js';
 import { appendFileSync } from 'fs';
+import { resolveActorIdentity } from '../core/auth/actor.js';
+import { buildWorkspaceContext } from '../core/context/workspaceContext.js';
 import {
   handleApiError,
   createStoryChainError,
@@ -14,61 +15,33 @@ import {
   generateRequestId,
 } from '../utils/errorHandler.js';
 
+interface UserRow {
+  id: string;
+  username: string;
+  email: string;
+  preferred_model: string;
+  auto_purchase_extensions: number;
+}
+
+interface StoryRow {
+  id: string;
+  title: string;
+  content: string;
+  author_id: string;
+  model_used: string;
+  character_count: number;
+  created_at: string;
+}
+
 // Auth middleware - bearer token verification
 async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) {
-    const error = createStoryChainError(
-      new Error('Missing authorization header'),
-      'UNAUTHORIZED',
-      { hint: 'Include "Authorization: Bearer <token>" header' }
-    );
-    return c.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          retryable: false,
-        },
-        requestId: error.requestId,
-        timestamp: new Date().toISOString(),
-      },
-      401,
-      { 'X-Request-Id': error.requestId }
-    );
-  }
+  const actor = resolveActorIdentity({
+    authorizationHeader: c.req.header('authorization'),
+    sessionIdHeader: c.req.header('x-session-id'),
+    expectedToken: config.authMode === 'token' ? config.zoClientIdentityToken : '',
+  });
 
-  const token = auth.slice(7);
-
-  // Accept any token that's at least 20 characters
-  if (!token || token.length < 20) {
-    const error = createStoryChainError(
-      new Error('Invalid token format'),
-      'INVALID_TOKEN_FORMAT',
-      { hint: 'Token must be at least 20 characters' }
-    );
-    return c.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          retryable: false,
-        },
-        requestId: error.requestId,
-        timestamp: new Date().toISOString(),
-      },
-      401,
-      { 'X-Request-Id': error.requestId }
-    );
-  }
-
-  // Derive user ID from token (last 16 chars for consistency)
-  const userId = 'user_' + token.slice(-16);
-  const email = 'user@storychain.local';
-
-  return { userId, email };
+  return { userId: actor.userId, email: actor.email };
 }
 
 // GET /api/user/settings
@@ -78,7 +51,7 @@ export async function getUserSettings(c: Context) {
 
   try {
     const database = await getDb();
-    const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId) as UserRow | null;
 
     if (!user) {
       // Create default user - NO TOKENS
@@ -168,7 +141,7 @@ export async function getUserProfile(c: Context) {
 
   try {
     const database = await getDb();
-    let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+    let user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId) as UserRow | null;
 
     if (!user) {
       // Create default user - NO TOKENS
@@ -176,7 +149,10 @@ export async function getUserProfile(c: Context) {
         'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
         [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
       );
-      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
+      user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId) as UserRow | null;
+      if (!user) {
+        throw createNotFoundError('User', auth.userId);
+      }
     }
 
     const requestId = generateRequestId();
@@ -291,6 +267,7 @@ export async function saveApiKey(c: Context) {
 // POST /api/stories - Create story (PUBLIC - supports anonymous, agent, and authenticated users)
 export async function createStory(c: Context) {
   const startTime = Date.now();
+  const workspace = buildWorkspaceContext(c);
 
   // Try to get auth, but don't require it
   let auth: { userId: string; email: string } | null = null;
@@ -359,7 +336,7 @@ export async function createStory(c: Context) {
     }
 
     // Create/get user in database - NO TOKENS
-    let user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId) as UserRow | null;
     if (!user) {
       database.run(
         'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
@@ -386,7 +363,7 @@ export async function createStory(c: Context) {
       ]
     );
 
-    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
+    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId) as StoryRow;
     const requestId = generateRequestId();
 
     return c.json(
@@ -405,7 +382,7 @@ export async function createStory(c: Context) {
         timestamp: new Date().toISOString(),
       },
       201,
-      { 'X-Request-Id': requestId }
+      { 'X-Request-Id': requestId, 'X-Workspace-Id': workspace.workspaceId }
     );
   } catch (error) {
     return handleApiError(c, error, 'createStory', { userId: auth?.userId || 'anonymous' });
@@ -415,6 +392,7 @@ export async function createStory(c: Context) {
 // Health check
 export async function healthCheck(c: Context) {
   try {
+    const workspace = buildWorkspaceContext(c);
     const database = await getDb();
     database.query('SELECT 1').get();
 
@@ -426,6 +404,7 @@ export async function healthCheck(c: Context) {
         database: 'connected',
         version: '2.0.0',
         requestId,
+        workspaceId: workspace.workspaceId,
       },
       200,
       { 'X-Request-Id': requestId }

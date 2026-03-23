@@ -1,4 +1,7 @@
-import { DatabaseConnection } from '../database/connection';
+type DatabaseConnection = {
+  query: (sql: string, params?: unknown[]) => Promise<any[]> | any[];
+  run: (sql: string, params?: unknown[]) => Promise<unknown> | unknown;
+};
 
 export interface ContentCategory {
   id?: number;

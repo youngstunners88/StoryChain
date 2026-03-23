@@ -2,39 +2,45 @@
 // Likes, follows, trending, and user interactions
 
 import type { Context } from 'hono';
-import { timingSafeEqual } from 'node:crypto';
 import { getDb } from '../database/connection.js';
+import { resolveActorIdentity } from '../core/auth/actor.js';
+import { config } from '../config/index.js';
+import { appendFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 // Auth middleware
-async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
+function requireAuth(c: Context): { userId: string; email: string } {
+  const actor = resolveActorIdentity({
+    authorizationHeader: c.req.header('authorization'),
+    sessionIdHeader: c.req.header('x-session-id'),
+    expectedToken: config.authMode === 'token' ? config.zoClientIdentityToken : '',
+  });
 
-  const token = auth.slice(7);
-  
-  // Accept any token that's at least 20 characters
-  // This is more lenient while still requiring some form of auth
-  if (!token || token.length < 20) {
-    return c.json({ error: 'Invalid token format' }, 401);
-  }
+  return { userId: actor.userId, email: actor.email };
+}
 
-  // Derive user ID from token (last 16 chars for consistency)
-  const userId = 'user_' + token.slice(-16);
-  const email = 'user@storychain.local';
+function isDatabaseCorruptionError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.message.includes('SQLITE_CORRUPT') || error.message.includes('database disk image is malformed');
+}
 
-  return { userId, email };
+async function logSystemFailureMode(component: string, error: unknown, endpoint: string) {
+  const logPath = join(process.cwd(), 'logs', 'system-failure-mode.jsonl');
+  const entry = {
+    mode: 'SYSTEM_FAILURE_MODE',
+    component,
+    endpoint,
+    timestamp: new Date().toISOString(),
+    error: error instanceof Error ? error.message : String(error),
+  };
+  await appendFile(logPath, `${JSON.stringify(entry)}\n`).catch(() => undefined);
 }
 
 // GET /api/stories - Feed with filters and pagination (PUBLIC - no auth required)
 export async function getStories(c: Context) {
   // Try to get auth, but don't require it
   let auth: { userId: string; email: string } | null = null;
-  const authResult = await requireAuth(c);
-  if (!(authResult instanceof Response)) {
-    auth = authResult;
-  }
+  auth = requireAuth(c);
 
   try {
     const { sort = 'newest', filter = 'all', page = '1', limit = '12', q, model } = c.req.query();
@@ -121,6 +127,10 @@ export async function getStories(c: Context) {
       })),
     });
   } catch (error) {
+    if (isDatabaseCorruptionError(error)) {
+      await logSystemFailureMode('social_getStories', error, '/api/stories');
+      return c.json({ stories: [], warning: 'Data store unavailable, serving empty feed', code: 'SYSTEM_FAILURE_MODE' }, 200);
+    }
     console.error('Error fetching stories:', error);
     return c.json({ error: 'Failed to fetch stories' }, 500);
   }
@@ -192,7 +202,7 @@ export async function getStory(c: Context) {
       FROM stories s
       JOIN users u ON s.author_id = u.id
       WHERE s.id = ?
-    `).get(storyId);
+    `).get(storyId) as any;
 
     if (!story) {
       return c.json({ error: 'Story not found' }, 404);
@@ -208,7 +218,7 @@ export async function getStory(c: Context) {
     `).all(storyId);
 
     // Get like count
-    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
+    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId) as { count: number } | null;
 
     return c.json({
       story: {
@@ -276,7 +286,7 @@ export async function likeStory(c: Context) {
     }
 
     // Get new like count
-    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId);
+    const likeCount = database.query('SELECT COUNT(*) as count FROM likes WHERE story_id = ?').get(storyId) as { count: number } | null;
 
     return c.json({
       liked: !existingLike,
@@ -361,8 +371,7 @@ export async function addContribution(c: Context) {
 
 // GET /api/users/:id - Get user profile
 export async function getUser(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  const auth = requireAuth(c);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -372,21 +381,21 @@ export async function getUser(c: Context) {
   try {
     const database = await getDb();
 
-    const user = database.query('SELECT * FROM users WHERE id = ?').get(userId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(userId) as any;
     if (!user) {
       return c.json({ error: 'User not found' }, 404);
     }
 
     // Get stats
-    const storiesCount = database.query('SELECT COUNT(*) as count FROM stories WHERE author_id = ?').get(userId);
-    const contributionsCount = database.query('SELECT COUNT(*) as count FROM contributions WHERE author_id = ?').get(userId);
+    const storiesCount = database.query('SELECT COUNT(*) as count FROM stories WHERE author_id = ?').get(userId) as { count: number } | null;
+    const contributionsCount = database.query('SELECT COUNT(*) as count FROM contributions WHERE author_id = ?').get(userId) as { count: number } | null;
     const totalLikes = database.query(`
       SELECT COUNT(*) as count FROM likes l
       JOIN stories s ON l.story_id = s.id
       WHERE s.author_id = ?
-    `).get(userId);
-    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId);
-    const followingCount = database.query('SELECT COUNT(*) as count FROM follows WHERE follower_id = ?').get(userId);
+    `).get(userId) as { count: number } | null;
+    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId) as { count: number } | null;
+    const followingCount = database.query('SELECT COUNT(*) as count FROM follows WHERE follower_id = ?').get(userId) as { count: number } | null;
 
     // Check if current user is following
     const isFollowing = database.query(
@@ -417,8 +426,7 @@ export async function getUser(c: Context) {
 
 // GET /api/users/:id/stories - Get user's stories
 export async function getUserStories(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  const auth = requireAuth(c);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -459,8 +467,7 @@ export async function getUserStories(c: Context) {
 
 // GET /api/users/:id/contributions - Get user's contributions
 export async function getUserContributions(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  const auth = requireAuth(c);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -496,8 +503,7 @@ export async function getUserContributions(c: Context) {
 
 // GET /api/users/:id/liked - Get stories liked by user
 export async function getUserLikedStories(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  const auth = requireAuth(c);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -539,8 +545,7 @@ export async function getUserLikedStories(c: Context) {
 
 // POST /api/users/:id/follow - Follow/unfollow a user
 export async function followUser(c: Context) {
-  const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  const auth = requireAuth(c);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -572,7 +577,7 @@ export async function followUser(c: Context) {
     }
 
     // Get new follower count
-    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId);
+    const followersCount = database.query('SELECT COUNT(*) as count FROM follows WHERE following_id = ?').get(userId) as { count: number } | null;
 
     return c.json({
       following: !existingFollow,
@@ -588,10 +593,7 @@ export async function followUser(c: Context) {
 export async function getTrending(c: Context) {
   // Try to get auth, but don't require it
   let auth: { userId: string; email: string } | null = null;
-  const authResult = await requireAuth(c);
-  if (!(authResult instanceof Response)) {
-    auth = authResult;
-  }
+  auth = requireAuth(c);
 
   try {
     const database = await getDb();
@@ -626,6 +628,10 @@ export async function getTrending(c: Context) {
       })),
     });
   } catch (error) {
+    if (isDatabaseCorruptionError(error)) {
+      await logSystemFailureMode('social_getTrending', error, '/api/trending');
+      return c.json({ stories: [], warning: 'Trending unavailable, serving fallback', code: 'SYSTEM_FAILURE_MODE' }, 200);
+    }
     console.error('Error fetching trending:', error);
     return c.json({ error: 'Failed to fetch trending stories' }, 500);
   }
