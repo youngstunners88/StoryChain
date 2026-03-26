@@ -17,7 +17,7 @@ const Login: React.FC = () => {
 
   // Try to get ZO_CLIENT_IDENTITY_TOKEN from environment if available
   useEffect(() => {
-    const envToken = (window as any).__ZO_CLIENT_IDENTITY_TOKEN__;
+    const envToken = (window as any).__STORYCHAIN_API_TOKEN__;
     if (envToken) {
       setToken(envToken);
     }
@@ -45,7 +45,7 @@ const Login: React.FC = () => {
       if (response.ok) {
         login(token.trim());
       } else if (response.status === 401) {
-        setError('Invalid token. Please check your ZO Client Identity Token in Settings > Advanced.');
+        setError('Invalid token. Please check your StoryChain API Token in Settings > Advanced.');
       } else {
         const data = await response.json().catch(() => ({}));
         setError(data.error || 'Authentication failed. Please try again.');
@@ -82,7 +82,7 @@ const Login: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-zinc-400 mb-2">
-                ZO Client Identity Token
+                StoryChain API Token
               </label>
               <input
                 type="password"
@@ -94,7 +94,7 @@ const Login: React.FC = () => {
               <p className="mt-2 text-xs text-zinc-500">
                 Find your token in{' '}
                 <a
-                  href="https://kofi.zo.computer/?t=settings&s=advanced"
+                  href=""
                   target="_blank"
                   rel="noopener noreferrer"
                   className="text-amber-500 hover:text-amber-400"
@@ -308,7 +308,7 @@ const SettingsGuest: React.FC = () => {
             To access settings and publish stories, you need to add your API token.
           </p>
           <a
-            href="https://kofi.zo.computer/?t=settings&s=advanced"
+            href=""
             className="inline-flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors"
           >
             Go to Settings &gt; Advanced
@@ -335,7 +335,7 @@ const TokenStoreGuest: React.FC = () => {
             Sign in to purchase tokens and unlock extended character limits.
           </p>
           <a
-            href="https://kofi.zo.computer/?t=settings&s=advanced"
+            href=""
             className="inline-flex items-center gap-2 px-6 py-2 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors"
           >
             Add API Token
@@ -369,7 +369,7 @@ const LoginModal: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           Continue as Guest
         </button>
         <a
-          href="https://kofi.zo.computer/?t=settings&s=advanced"
+          href=""
           className="flex-1 py-2 px-4 bg-amber-500 hover:bg-amber-400 text-black font-medium rounded-lg transition-colors text-center"
         >
           Add Token

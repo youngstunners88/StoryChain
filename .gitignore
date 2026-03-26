@@ -4,3 +4,8 @@ data/*.db
 *.log
 bun.lock
 mcp-server/
+
+# Environment files
+.env
+.env.local
+.env.production

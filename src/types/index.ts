@@ -33,20 +33,21 @@ export interface Contribution {
   createdAt: Date;
 }
 
-export type LLMModel = 
-  | 'kimi-k2.5'
-  | 'reka-edge'
-  | 'qwen-2.5'
-  | 'mercury-2'
+export type LLMModel =
+  | 'nemotron-super'
+  | 'nemotron-nano'
+  | 'llama-3.3-70b'
   | 'llama-3.1'
   | 'gemma-2'
   | 'mixtral-8x7b'
-  | 'gemini-pro';
+  | 'gemini-pro'
+  | 'gpt-4o-mini'
+  | 'claude-haiku';
 
 export interface LLMConfig {
   id: LLMModel;
   name: string;
-  provider: 'openrouter' | 'inception' | 'groq' | 'google' | 'zo';
+  provider: 'openrouter' | 'groq' | 'google' | 'openai' | 'anthropic';
   description: string;
   maxTokens: number;
   temperature: number;
@@ -97,62 +98,46 @@ export const DEFAULT_CHARACTER_EXTENSION: CharacterExtension = {
 
 export const LLM_MODELS: LLMConfig[] = [
   {
-    id: 'kimi-k2.5',
-    name: 'Kimi K2.5',
-    provider: 'zo',
-    description: 'Advanced reasoning model with strong creative capabilities',
+    id: 'nemotron-super',
+    name: 'Nemotron Super 120B',
+    provider: 'openrouter',
+    description: "NVIDIA's flagship reasoning model - FREE via OpenRouter",
     maxTokens: 4096,
     temperature: 0.7,
     isFree: true,
-    apiKeyEnvVar: 'ZO_CLIENT_IDENTITY_TOKEN',
-    endpoint: 'https://api.zo.computer/zo/ask',
-    modelId: 'vercel:moonshotai/kimi-k2.5',
-  },
-  {
-    id: 'reka-edge',
-    name: 'Reka Edge',
-    provider: 'openrouter',
-    description: 'Fast and efficient for creative writing tasks',
-    maxTokens: 4096,
-    temperature: 0.8,
-    isFree: false,
-    costPer1KTokens: 0.0005,
     apiKeyEnvVar: 'OPENROUTER_API_KEY',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'rekaai/reka-edge',
+    modelId: 'nvidia/nemotron-3-super-120b-a12b:free',
   },
   {
-    id: 'qwen-2.5',
-    name: 'Qwen 2.5',
+    id: 'nemotron-nano',
+    name: 'Nemotron Nano 30B',
     provider: 'openrouter',
-    description: 'Alibaba\'s latest model with strong multilingual support',
+    description: "NVIDIA's fast lightweight model - FREE via OpenRouter",
     maxTokens: 4096,
     temperature: 0.7,
-    isFree: false,
-    costPer1KTokens: 0.0003,
+    isFree: true,
     apiKeyEnvVar: 'OPENROUTER_API_KEY',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'qwen/qwen-2.5-72b-instruct',
+    modelId: 'nvidia/nemotron-3-nano-30b-a3b:free',
   },
   {
-    id: 'mercury-2',
-    name: 'Mercury 2',
-    provider: 'inception',
-    description: 'Specialized for narrative and storytelling',
+    id: 'llama-3.3-70b',
+    name: 'Llama 3.3 70B (Groq)',
+    provider: 'groq',
+    description: "Meta's latest open model - FAST & FREE on Groq",
     maxTokens: 4096,
-    temperature: 0.75,
-    isFree: false,
-    costPer1KTokens: 0.001,
-    apiKeyEnvVar: 'INCEPTION_API_KEY',
-    endpoint: 'https://api.inceptionlabs.ai/v1/chat/completions',
-    modelId: 'mercury-2',
+    temperature: 0.7,
+    isFree: true,
+    apiKeyEnvVar: 'GROQ_API_KEY',
+    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+    modelId: 'llama-3.3-70b-versatile',
   },
-  // FREE MODELS
   {
     id: 'llama-3.1',
-    name: 'Llama 3.1 (Groq)',
+    name: 'Llama 3.1 70B (Groq)',
     provider: 'groq',
-    description: 'Meta\'s open-source model - FAST & FREE',
+    description: "Meta's open-source model - FAST & FREE",
     maxTokens: 4096,
     temperature: 0.7,
     isFree: true,
@@ -164,7 +149,7 @@ export const LLM_MODELS: LLMConfig[] = [
     id: 'gemma-2',
     name: 'Gemma 2 (Groq)',
     provider: 'groq',
-    description: 'Google\'s lightweight open model - FREE',
+    description: "Google's lightweight open model - FREE",
     maxTokens: 4096,
     temperature: 0.7,
     isFree: true,
@@ -176,7 +161,7 @@ export const LLM_MODELS: LLMConfig[] = [
     id: 'mixtral-8x7b',
     name: 'Mixtral 8x7B (Groq)',
     provider: 'groq',
-    description: 'Mistral\'s MoE model - FREE tier available',
+    description: "Mistral's MoE model - FREE tier available",
     maxTokens: 4096,
     temperature: 0.7,
     isFree: true,
@@ -188,7 +173,7 @@ export const LLM_MODELS: LLMConfig[] = [
     id: 'gemini-pro',
     name: 'Gemini Pro (Google)',
     provider: 'google',
-    description: 'Google\'s multimodal model - FREE tier available',
+    description: "Google's multimodal model - FREE tier available",
     maxTokens: 4096,
     temperature: 0.7,
     isFree: true,
@@ -196,12 +181,38 @@ export const LLM_MODELS: LLMConfig[] = [
     endpoint: 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
     modelId: 'gemini-pro',
   },
+  {
+    id: 'gpt-4o-mini',
+    name: 'GPT-4o Mini',
+    provider: 'openai',
+    description: "OpenAI's fast affordable model",
+    maxTokens: 4096,
+    temperature: 0.7,
+    isFree: false,
+    costPer1KTokens: 0.00015,
+    apiKeyEnvVar: 'OPENAI_API_KEY',
+    endpoint: 'https://api.openai.com/v1/chat/completions',
+    modelId: 'gpt-4o-mini',
+  },
+  {
+    id: 'claude-haiku',
+    name: 'Claude Haiku',
+    provider: 'anthropic',
+    description: "Anthropic's fast creative model",
+    maxTokens: 4096,
+    temperature: 0.7,
+    isFree: false,
+    costPer1KTokens: 0.00025,
+    apiKeyEnvVar: 'ANTHROPIC_API_KEY',
+    endpoint: 'https://api.anthropic.com/v1/messages',
+    modelId: 'claude-haiku-4-5-20251001',
+  },
 ];
 
 export const REQUIRED_API_KEYS = [
-  { key: 'OPENROUTER_API_KEY', models: ['reka-edge', 'qwen-2.5'], required: false },
-  { key: 'INCEPTION_API_KEY', models: ['mercury-2'], required: false },
-  { key: 'ZO_CLIENT_IDENTITY_TOKEN', models: ['kimi-k2.5'], required: true },
-  { key: 'GROQ_API_KEY', models: ['llama-3.1', 'gemma-2', 'mixtral-8x7b'], required: false },
+  { key: 'OPENROUTER_API_KEY', models: ['nemotron-super', 'nemotron-nano'], required: true },
+  { key: 'GROQ_API_KEY', models: ['llama-3.3-70b', 'llama-3.1', 'gemma-2', 'mixtral-8x7b'], required: false },
   { key: 'GOOGLE_API_KEY', models: ['gemini-pro'], required: false },
+  { key: 'OPENAI_API_KEY', models: ['gpt-4o-mini'], required: false },
+  { key: 'ANTHROPIC_API_KEY', models: ['claude-haiku'], required: false },
 ];

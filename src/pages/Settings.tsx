@@ -15,10 +15,10 @@ interface ApiKeyConfig {
 
 const API_KEYS: ApiKeyConfig[] = [
   {
-    key: 'ZO_CLIENT_IDENTITY_TOKEN',
-    label: 'ZO Client Identity Token',
+    key: 'OPENROUTER_API_KEY',
+    label: 'OpenRouter API Key',
     description: 'Required for Kimi K2.5 (provided by Zo)',
-    url: 'https://kofi.zo.computer/?t=settings&s=advanced',
+    url: 'https://openrouter.ai/keys',
     models: ['Kimi K2.5'],
     required: true,
   },

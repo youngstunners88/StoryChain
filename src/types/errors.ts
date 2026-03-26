@@ -1,8 +1,8 @@
-// Error Types - OpenClaw-inspired structured error handling
-// Provides consistent error responses across StoryChain API
+// Error Types - structured error handling
+
 
 /**
- * Error payload structure matching OpenClaw's GatewayErrorPayload
+ * Error payload structure for consistent API error responses
  */
 export interface ErrorPayload {
   code: string;
@@ -96,7 +96,7 @@ export type ErrorCode = keyof typeof ERROR_DEFINITIONS;
 
 /**
  * StoryChain API Error class
- * Inspired by OpenClaw's GatewayResponseError
+ * StoryChain API Error class
  */
 export class StoryChainError extends Error {
   code: ErrorCode;

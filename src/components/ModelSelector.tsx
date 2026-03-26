@@ -56,7 +56,7 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const isModelAvailable = (model: LLMConfig): boolean => {
-    // ZO_CLIENT_IDENTITY_TOKEN models (kimi-k2.5) are always available
+    // ZO_CLIENT_IDENTITY_TOKEN models (nemotron-super) are always available
     if (model.apiKeyEnvVar === 'ZO_CLIENT_IDENTITY_TOKEN') {
       return true;
     }

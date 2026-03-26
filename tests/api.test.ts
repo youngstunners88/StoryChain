@@ -3,7 +3,7 @@ import { describe, it, expect } from 'bun:test';
 // Test configuration - assumes server is already running
 const BASE_URL = `http://localhost:3000`;
 
-// Test token - must match the server's ZO_CLIENT_IDENTITY_TOKEN
+// Test token - must match the server's OPENROUTER_API_KEY
 const TEST_TOKEN = 'test-token-for-testing';
 const AUTH_HEADER = `Bearer ${TEST_TOKEN}`;
 

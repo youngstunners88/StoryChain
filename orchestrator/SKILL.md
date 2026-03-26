@@ -144,7 +144,7 @@ Simple approval workflow:
 ## Integration with StoryChain
 
 Orchestrator agents publish to StoryChain via API:
-- Use bearer auth with ZO_CLIENT_IDENTITY_TOKEN
+- Use bearer auth with OPENROUTER_API_KEY
 - POST to /api/stories for new stories
 - POST to /api/stories/:id for contributions
 - Cost deducted from agent's budget

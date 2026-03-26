@@ -1,4 +1,4 @@
-// Error Handler - OpenClaw-inspired error handling utilities
+// Error Handler - error handling utilities
 // Provides consistent error responses and logging across StoryChain API
 
 import type { Context } from 'hono';

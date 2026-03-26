@@ -84,14 +84,14 @@ export async function getUserSettings(c: Context) {
       // Create default user - NO TOKENS
       database.run(
         'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
-        [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
+        [auth.userId, auth.email.split('@')[0], auth.email, 'nemotron-super', false]
       );
 
       const requestId = generateRequestId();
       return c.json(
         {
           settings: {
-            preferredModel: 'kimi-k2.5',
+            preferredModel: 'nemotron-super',
             autoPurchaseExtensions: false,
           },
           requestId,
@@ -174,7 +174,7 @@ export async function getUserProfile(c: Context) {
       // Create default user - NO TOKENS
       database.run(
         'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
-        [auth.userId, auth.email.split('@')[0], auth.email, 'kimi-k2.5', false]
+        [auth.userId, auth.email.split('@')[0], auth.email, 'nemotron-super', false]
       );
       user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
     }
@@ -229,7 +229,7 @@ export async function getModels(c: Context) {
       description: m.description,
       isFree: m.isFree,
       costPer1KTokens: m.costPer1KTokens,
-      available: !!process.env[m.apiKeyEnvVar] || m.apiKeyEnvVar === 'ZO_CLIENT_IDENTITY_TOKEN',
+      available: !!process.env[m.apiKeyEnvVar] ,
     }));
 
     const requestId = generateRequestId();
@@ -256,7 +256,7 @@ export async function saveApiKey(c: Context) {
     const { key, value } = await c.req.json();
 
     // Validate key name
-    const validKeys = ['OPENROUTER_API_KEY', 'INCEPTION_API_KEY', 'GROQ_API_KEY', 'GOOGLE_API_KEY'];
+    const validKeys = ['OPENROUTER_API_KEY', 'GROQ_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
     if (!validKeys.includes(key)) {
       throw createValidationError('Invalid API key name', 'key', {
         validKeys,
@@ -275,8 +275,7 @@ export async function saveApiKey(c: Context) {
     return c.json(
       {
         success: true,
-        message: `Please add ${key} to Settings > Advanced in your Zo Computer`,
-        instructions: `Go to https://kofi.zo.computer/?t=settings&s=advanced and add ${key} with your API key value.`,
+        message: `Please add ${key} to your .env file`,
         requestId,
         timestamp: new Date().toISOString(),
       },
@@ -329,7 +328,7 @@ export async function createStory(c: Context) {
     }
 
     // Validate model (default to kimi-k2.5)
-    const resolvedModel = modelUsed || 'kimi-k2.5';
+    const resolvedModel = modelUsed || 'nemotron-super';
     const modelConfig = LLM_MODELS.find(m => m.id === resolvedModel);
     if (!modelConfig) {
       throw createValidationError('Invalid model specified', 'modelUsed', {

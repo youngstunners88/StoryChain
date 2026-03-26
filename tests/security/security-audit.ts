@@ -112,7 +112,7 @@ async function auditEnvironment() {
   console.log("\n🔐 Checking Environment Variables...");
   
   const requiredVars = [
-    "ZO_CLIENT_IDENTITY_TOKEN",
+    "OPENROUTER_API_KEY",
   ];
   
   const optionalVars = [
