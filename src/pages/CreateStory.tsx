@@ -1,12 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PenTool, Send, AlertCircle, RefreshCw, Coins, ArrowRight, User } from 'lucide-react';
 import { ModelSelector } from '../components/ModelSelector';
 import { CharacterSlider } from '../components/CharacterSlider';
 import { LLMModel, Story, DEFAULT_CHARACTER_EXTENSION } from '../types';
 import { useAuth } from '../context/AuthContext';
 
+interface WriterItem {
+  userId: string;
+  displayName: string;
+  isAgent: boolean;
+  avatarEmoji: string;
+}
+
 export const CreateStory: React.FC = () => {
-  const { fetchWithAuth, isAuthenticated, isLoading: authLoading } = useAuth();
+  const { fetchWithAuth, isAuthenticated, penName, isLoading: authLoading } = useAuth();
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [selectedModel, setSelectedModel] = useState<LLMModel>('kimi-k2.5');
@@ -17,6 +24,15 @@ export const CreateStory: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [createdStory, setCreatedStory] = useState<Story | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Collaborators
+  const [collabOpen, setCollabOpen] = useState(false);
+  const [writersList, setWritersList] = useState<WriterItem[]>([]);
+  const [writersLoading, setWritersLoading] = useState(false);
+  const [writersLoaded, setWritersLoaded] = useState(false);
+  const [selectedCollabs, setSelectedCollabs] = useState<Set<string>>(new Set());
+  const [collabSearch, setCollabSearch] = useState('');
+  const collabFetchedRef = useRef(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -74,15 +90,7 @@ export const CreateStory: React.FC = () => {
       };
     }
 
-    // Check auth
-    if (!isAuthenticated) {
-      return {
-        valid: false,
-        reason: 'Please add your API token in Settings > Advanced to publish stories',
-      };
-    }
-
-    const tokensNeeded = calculateTokensNeeded();
+        const tokensNeeded = calculateTokensNeeded();
     if (tokensNeeded > tokens && !autoPurchase) {
       return {
         valid: false,
@@ -136,6 +144,26 @@ export const CreateStory: React.FC = () => {
       const data = await response.json();
       setCreatedStory(data.story);
 
+      // Send collab invites (non-blocking)
+      if (selectedCollabs.size > 0 && data.story?.id) {
+        const newStoryId = data.story.id;
+        const newStoryTitle = data.story.title ?? title.trim();
+        for (const userId of selectedCollabs) {
+          const writer = writersList.find(w => w.userId === userId);
+          if (!writer) continue;
+          fetchWithAuth('/api/collab-invites', {
+            method: 'POST',
+            body: JSON.stringify({
+              storyId: newStoryId,
+              storyTitle: newStoryTitle,
+              inviteeId: userId,
+              inviteeName: writer.displayName,
+              message: "You've been invited to collaborate!",
+            }),
+          }).catch(() => {});
+        }
+      }
+
       // Refresh token balance
       if (isAuthenticated) {
         await loadUserData();
@@ -145,12 +173,48 @@ export const CreateStory: React.FC = () => {
       setTitle('');
       setContent('');
       setMaxCharacters(DEFAULT_CHARACTER_EXTENSION.baseCharacters);
+      setSelectedCollabs(new Set());
+      setCollabOpen(false);
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to create story');
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  const handleCollabToggle = () => {
+    setCollabOpen(v => !v);
+    if (!collabFetchedRef.current && !writersLoaded) {
+      collabFetchedRef.current = true;
+      setWritersLoading(true);
+      fetch('/api/writers')
+        .then(r => r.json())
+        .then(d => {
+          const writers: WriterItem[] = (d.writers ?? []).map((w: any) => ({
+            userId: w.id ?? w.userId,
+            displayName: w.name ?? w.displayName,
+            isAgent: w.isAgent ?? false,
+            avatarEmoji: w.avatarEmoji ?? '✍️',
+          }));
+          setWritersList(writers);
+          setWritersLoaded(true);
+        })
+        .catch(() => {})
+        .finally(() => setWritersLoading(false));
+    }
+  };
+
+  const toggleCollab = (userId: string) => {
+    setSelectedCollabs(prev => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId); else next.add(userId);
+      return next;
+    });
+  };
+
+  const filteredWriters = writersList.filter(w =>
+    w.displayName.toLowerCase().includes(collabSearch.toLowerCase())
+  );
 
   const tokensNeeded = calculateTokensNeeded();
   const validation = canSubmit();
@@ -321,6 +385,78 @@ export const CreateStory: React.FC = () => {
               onAutoPurchaseChange={setAutoPurchase}
               disabled={isSubmitting || !isAuthenticated}
             />
+          </div>
+
+          {/* Invite Collaborators */}
+          <div className="rounded-xl overflow-hidden" style={{ border: '1px solid #2a2218' }}>
+            <button type="button" onClick={handleCollabToggle}
+              className="w-full flex items-center justify-between px-5 py-4 transition-colors"
+              style={{ background: collabOpen ? '#1e1a16' : '#161210', border: 'none', cursor: 'pointer' }}>
+              <div className="flex items-center gap-2">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="#8a7a68" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                </svg>
+                <span className="text-sm font-medium" style={{ color: '#8a7a68' }}>
+                  Invite Collaborators
+                  <span className="ml-1.5 text-xs" style={{ color: '#4a3f35' }}>(optional)</span>
+                </span>
+                {selectedCollabs.size > 0 && (
+                  <span className="text-xs px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(201,168,76,0.15)', color: '#c9a84c', border: '1px solid rgba(201,168,76,0.25)' }}>
+                    {selectedCollabs.size} selected
+                  </span>
+                )}
+              </div>
+              <svg className="w-4 h-4 transition-transform" viewBox="0 0 24 24" fill="none" stroke="#4a3f35" strokeWidth="2"
+                style={{ transform: collabOpen ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+              </svg>
+            </button>
+
+            {collabOpen && (
+              <div style={{ borderTop: '1px solid #2a2218', background: '#161210' }}>
+                <div className="px-4 py-3">
+                  <input
+                    value={collabSearch}
+                    onChange={e => setCollabSearch(e.target.value)}
+                    placeholder="Search writers…"
+                    className="w-full px-3 py-2 rounded-lg text-sm"
+                    style={{ background: '#0d0b08', border: '1px solid #2a2218', color: '#ede6d6', outline: 'none' }}
+                  />
+                </div>
+                <div style={{ maxHeight: 240, overflowY: 'auto' }}>
+                  {writersLoading ? (
+                    <div className="px-4 py-6 text-center text-sm" style={{ color: '#4a3f35' }}>Loading writers…</div>
+                  ) : filteredWriters.length === 0 ? (
+                    <div className="px-4 py-6 text-center text-sm" style={{ color: '#4a3f35' }}>
+                      {collabSearch ? 'No writers match your search' : 'No writers found'}
+                    </div>
+                  ) : (
+                    filteredWriters.map(w => {
+                      const checked = selectedCollabs.has(w.userId);
+                      return (
+                        <label key={w.userId}
+                          className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-colors"
+                          style={{ background: checked ? 'rgba(201,168,76,0.05)' : 'transparent' }}
+                          onMouseEnter={e => { if (!checked) (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.02)'; }}
+                          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = checked ? 'rgba(201,168,76,0.05)' : 'transparent'; }}>
+                          <input type="checkbox" checked={checked} onChange={() => toggleCollab(w.userId)}
+                            style={{ accentColor: '#c9a84c', width: 14, height: 14 }} />
+                          <span style={{ fontSize: 16 }}>{w.avatarEmoji}</span>
+                          <span className="text-sm flex-1" style={{ color: '#ede6d6' }}>{w.displayName}</span>
+                          {w.isAgent && (
+                            <span className="text-xs px-1.5 py-0.5 rounded-md"
+                              style={{ background: 'rgba(45,212,191,0.12)', border: '1px solid rgba(45,212,191,0.3)', color: '#2dd4bf' }}>
+                              AI Agent
+                            </span>
+                          )}
+                        </label>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Submit Button */}

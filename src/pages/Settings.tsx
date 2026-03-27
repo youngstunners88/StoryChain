@@ -1,336 +1,200 @@
-import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Key, AlertCircle, Check, Save, RefreshCw, ExternalLink, LogOut } from 'lucide-react';
-import { ModelSelector } from '../components/ModelSelector';
-import { LLMModel } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 
-interface ApiKeyConfig {
-  key: string;
-  label: string;
-  description: string;
-  url: string;
-  models: string[];
-  required: boolean;
-}
-
-const API_KEYS: ApiKeyConfig[] = [
-  {
-    key: 'OPENROUTER_API_KEY',
-    label: 'OpenRouter API Key',
-    description: 'Required for Kimi K2.5 (provided by Zo)',
-    url: 'https://openrouter.ai/keys',
-    models: ['Kimi K2.5'],
-    required: true,
-  },
-  {
-    key: 'OPENROUTER_API_KEY',
-    label: 'OpenRouter API Key',
-    description: 'For Reka Edge and Qwen 2.5',
-    url: 'https://openrouter.ai/keys',
-    models: ['Reka Edge', 'Qwen 2.5'],
-    required: false,
-  },
-  {
-    key: 'INCEPTION_API_KEY',
-    label: 'Inception API Key',
-    description: 'For Mercury 2 storytelling model',
-    url: 'https://inceptionlabs.ai',
-    models: ['Mercury 2'],
-    required: false,
-  },
-  {
-    key: 'GROQ_API_KEY',
-    label: 'Groq API Key',
-    description: 'For free Llama 3.1, Gemma 2, Mixtral',
-    url: 'https://console.groq.com/keys',
-    models: ['Llama 3.1', 'Gemma 2', 'Mixtral 8x7B'],
-    required: false,
-  },
-  {
-    key: 'GOOGLE_API_KEY',
-    label: 'Google API Key',
-    description: 'For Gemini Pro (free tier available)',
-    url: 'https://aistudio.google.com/app/apikey',
-    models: ['Gemini Pro'],
-    required: false,
-  },
-];
-
 export const Settings: React.FC = () => {
-  const { fetchWithAuth, logout, token } = useAuth();
-  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const { penName, logout, fetchWithAuth, updatePenName } = useAuth();
   const [keyStatus, setKeyStatus] = useState<Record<string, boolean>>({});
-  const [preferredModel, setPreferredModel] = useState<LLMModel>('kimi-k2.5');
-  const [autoPurchase, setAutoPurchase] = useState(false);
-  const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [editingName, setEditingName] = useState(false);
+  const [nameInput, setNameInput] = useState('');
+  const [savingName, setSavingName] = useState(false);
+  const nameInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    loadSettings();
+    fetchWithAuth('/api/llm/validate-keys')
+      .then(r => r.json())
+      .then(d => {
+        const map: Record<string, boolean> = {};
+        (d.keys || []).forEach((k: { key: string; valid: boolean }) => { map[k.key] = k.valid; });
+        setKeyStatus(map);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
   }, []);
 
-  const loadSettings = async () => {
+  const configuredProviders = Object.entries(keyStatus).filter(([, v]) => v).map(([k]) => k);
+
+  const handleStartEditName = () => {
+    setNameInput(penName || '');
+    setEditingName(true);
+    setTimeout(() => nameInputRef.current?.focus(), 50);
+  };
+
+  const handleSaveName = async () => {
+    const trimmed = nameInput.trim();
+    if (!trimmed || trimmed.length < 2) return;
+    setSavingName(true);
     try {
-      const response = await fetchWithAuth('/api/user/settings');
-      const data = await response.json();
-
-      if (data.settings) {
-        setPreferredModel(data.settings.preferredModel || 'kimi-k2.5');
-        setAutoPurchase(data.settings.autoPurchaseExtensions || false);
-      }
-
-      // Get current API key status
-      const statusResponse = await fetchWithAuth('/api/llm/validate-keys');
-      const statusData = await statusResponse.json();
-
-      const statusMap: Record<string, boolean> = {};
-      statusData.keys.forEach((k: { key: string; valid: boolean }) => {
-        statusMap[k.key] = k.valid;
+      updatePenName(trimmed);
+      await fetchWithAuth('/api/writers/me', {
+        method: 'PUT',
+        body: JSON.stringify({ displayName: trimmed }),
       });
-      setKeyStatus(statusMap);
-    } catch (error) {
-      console.error('Failed to load settings:', error);
+      setMessage({ type: 'success', text: 'Pen name updated successfully!' });
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      // update was applied locally even if API fails
     } finally {
-      setLoading(false);
+      setSavingName(false);
+      setEditingName(false);
     }
   };
 
-  const handleSave = async () => {
-    setSaving(true);
-    setMessage(null);
-
-    try {
-      // Save API keys
-      const keyPromises = Object.entries(apiKeys)
-        .filter(([, value]) => value.trim())
-        .map(([key, value]) =>
-          fetchWithAuth('/api/settings/api-keys', {
-            method: 'POST',
-            body: JSON.stringify({ key, value: value.trim() }),
-          })
-        );
-
-      await Promise.all(keyPromises);
-
-      // Save user preferences
-      await fetchWithAuth('/api/user/settings', {
-        method: 'POST',
-        body: JSON.stringify({
-          preferredModel,
-          autoPurchaseExtensions: autoPurchase,
-        }),
-      });
-
-      setMessage({ type: 'success', text: 'Settings saved successfully!' });
-
-      // Refresh key status
-      await loadSettings();
-    } catch (error) {
-      setMessage({ type: 'error', text: 'Failed to save settings. Please try again.' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleKeyChange = (key: string, value: string) => {
-    setApiKeys((prev) => ({ ...prev, [key]: value }));
-  };
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
-      </div>
-    );
-  }
+  const providers = [
+    { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', models: 'Nemotron, Kimi, Qwen, Reka', url: 'https://openrouter.ai/keys' },
+    { key: 'GROQ_API_KEY',       label: 'Groq',        models: 'Llama 3.3, Gemma 2, Mixtral', url: 'https://console.groq.com/keys' },
+    { key: 'ANTHROPIC_API_KEY',  label: 'Anthropic',   models: 'Claude Sonnet', url: 'https://console.anthropic.com/keys' },
+    { key: 'OPENAI_API_KEY',     label: 'OpenAI',      models: 'GPT-4o Mini', url: 'https://platform.openai.com/api-keys' },
+  ];
 
   return (
-    <div className="min-h-screen bg-zinc-950 py-8 px-4">
-      <div className="max-w-2xl mx-auto space-y-8">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-amber-500/10 rounded-xl">
-              <SettingsIcon className="w-6 h-6 text-amber-500" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-zinc-100">Settings</h1>
-              <p className="text-zinc-500">Configure your StoryChain experience</p>
+    <div className="max-w-2xl mx-auto px-4 py-8">
+      {/* Header */}
+      <div className="mb-8">
+        <h1 className="font-serif text-3xl font-bold mb-1" style={{ color: '#ede6d6' }}>Settings</h1>
+        <p className="text-sm" style={{ color: '#8a7a68' }}>Your writers circle profile & configuration</p>
+      </div>
+
+      {message && (
+        <div className="rounded-xl p-4 mb-6 text-sm flex items-center gap-2"
+          style={{
+            background: message.type === 'success' ? 'rgba(16,185,129,0.1)' : 'rgba(201,68,68,0.1)',
+            border: `1px solid ${message.type === 'success' ? 'rgba(16,185,129,0.3)' : 'rgba(201,68,68,0.25)'}`,
+            color: message.type === 'success' ? '#34d399' : '#e07070',
+          }}>
+          {message.text}
+        </div>
+      )}
+
+      {/* Pen name card */}
+      <div className="rounded-2xl p-6 mb-4" style={{ background: '#161210', border: '1px solid #2a2218' }}>
+        <p className="text-xs uppercase tracking-widest mb-3" style={{ color: '#4a3f35' }}>Your Pen Name</p>
+
+        {editingName ? (
+          <div className="space-y-3">
+            <input
+              ref={nameInputRef}
+              value={nameInput}
+              onChange={e => setNameInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveName(); if (e.key === 'Escape') setEditingName(false); }}
+              maxLength={32}
+              className="input-ink w-full px-4 py-3 font-serif text-xl"
+              style={{ color: '#c9a84c' }}
+            />
+            <div className="flex items-center gap-2">
+              <button onClick={handleSaveName} disabled={savingName || nameInput.trim().length < 2}
+                className="btn-gold px-5 py-2 text-sm">
+                {savingName ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => setEditingName(false)}
+                className="btn-ghost px-4 py-2 text-sm">Cancel</button>
             </div>
           </div>
-          <button
-            onClick={logout}
-            className="flex items-center gap-2 px-4 py-2 text-zinc-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
-          >
-            <LogOut className="w-4 h-4" />
-            Sign Out
-          </button>
-        </div>
-
-        {/* Status message */}
-        {message && (
-          <div
-            className={`
-              flex items-center gap-2 p-4 rounded-lg
-              ${message.type === 'success'
-                ? 'bg-green-500/10 border border-green-500/30 text-green-400'
-                : 'bg-red-500/10 border border-red-500/30 text-red-400'
-              }
-            `}
-          >
-            {message.type === 'success' ? (
-              <Check className="w-5 h-5" />
-            ) : (
-              <AlertCircle className="w-5 h-5" />
-            )}
-            {message.text}
+        ) : (
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="flex items-center gap-3">
+                <p className="font-serif text-2xl font-semibold" style={{ color: '#c9a84c' }}>
+                  {penName || 'Anonymous'}
+                </p>
+                <button onClick={handleStartEditName}
+                  title="Edit pen name"
+                  className="p-1.5 rounded-lg transition-colors"
+                  style={{ color: '#4a3f35', background: 'rgba(201,168,76,0.06)', border: '1px solid rgba(201,168,76,0.15)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLElement).style.color = '#c9a84c'; (e.currentTarget as HTMLElement).style.background = 'rgba(201,168,76,0.12)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLElement).style.color = '#4a3f35'; (e.currentTarget as HTMLElement).style.background = 'rgba(201,168,76,0.06)'; }}>
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
+                  </svg>
+                </button>
+              </div>
+              <p className="text-xs mt-1" style={{ color: '#8a7a68' }}>
+                Shown as your author name on all stories
+              </p>
+            </div>
+            <button onClick={logout}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm transition-colors"
+              style={{ color: '#8a7a68', border: '1px solid #2a2218' }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.color = '#e07070';
+                (e.currentTarget as HTMLElement).style.borderColor = 'rgba(201,68,68,0.3)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.color = '#8a7a68';
+                (e.currentTarget as HTMLElement).style.borderColor = '#2a2218';
+              }}>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+              </svg>
+              Log out
+            </button>
           </div>
         )}
+      </div>
 
-        {/* Current Token Display */}
-        <section className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
-          <h2 className="text-lg font-semibold text-zinc-200 mb-2">Authentication</h2>
-          <div className="bg-zinc-950 p-3 rounded-lg border border-zinc-800">
-            <p className="text-xs text-zinc-500 mb-1">Current Token (last 20 chars)</p>
-            <code className="text-sm text-zinc-400 font-mono">
-              ...{token?.slice(-20) || 'Not available'}
-            </code>
+      {/* LLM Providers */}
+      <div className="rounded-2xl overflow-hidden mb-4" style={{ border: '1px solid #2a2218' }}>
+        <div className="px-6 py-4" style={{ background: '#1e1a16', borderBottom: '1px solid #2a2218' }}>
+          <h2 className="font-serif text-lg font-semibold" style={{ color: '#ede6d6' }}>AI Providers</h2>
+          <p className="text-xs mt-0.5" style={{ color: '#8a7a68' }}>
+            Keys live in your server's <code className="text-xs px-1 rounded" style={{ background: '#0d0b08', color: '#c9a84c' }}>.env</code> file.
+            {configuredProviders.length > 0 && ` ${configuredProviders.length} configured.`}
+          </p>
+        </div>
+        {loading ? (
+          <div className="p-6 space-y-3">
+            {[1,2,3,4].map(i => <div key={i} className="skeleton h-10 rounded-xl" />)}
           </div>
-        </section>
-
-        {/* API Keys Section */}
-        <section className="bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
-          <div className="p-6 border-b border-zinc-800">
-            <div className="flex items-center gap-3">
-              <Key className="w-5 h-5 text-zinc-400" />
-              <h2 className="text-lg font-semibold text-zinc-200">API Keys</h2>
-            </div>
-            <p className="mt-1 text-sm text-zinc-500">
-              Add your API keys to unlock more AI models. Keys are stored securely in Settings &gt; Advanced.
-            </p>
-          </div>
-
-          <div className="divide-y divide-zinc-800">
-            {API_KEYS.map((apiKey) => {
-              const isConfigured = keyStatus[apiKey.key];
-              const hasValue = apiKeys[apiKey.key]?.trim();
-
+        ) : (
+          <div style={{ background: '#161210' }}>
+            {providers.map(({ key, label, models, url }, i) => {
+              const configured = keyStatus[key] ?? false;
               return (
-                <div key={apiKey.key} className="p-6 space-y-3">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="font-medium text-zinc-300">{apiKey.label}</h3>
-                        {apiKey.required && (
-                          <span className="px-1.5 py-0.5 text-[10px] bg-red-500/20 text-red-400 rounded">
-                            REQUIRED
-                          </span>
-                        )}
-                        {isConfigured && (
-                          <span className="flex items-center gap-1 text-xs text-green-400">
-                            <Check className="w-3 h-3" />
-                            Configured
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-zinc-500 mt-1">{apiKey.description}</p>
-                      <p className="text-xs text-zinc-600 mt-1">
-                        Powers: {apiKey.models.join(', ')}
-                      </p>
+                <div key={key} className="flex items-center justify-between px-6 py-4"
+                  style={{ borderBottom: i < providers.length - 1 ? '1px solid #2a2218' : 'none' }}>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium" style={{ color: '#ede6d6' }}>{label}</span>
+                      {configured
+                        ? <span className="text-xs flex items-center gap-1" style={{ color: '#34d399' }}>✓ Active</span>
+                        : <span className="text-xs" style={{ color: '#4a3f35' }}>Not configured</span>
+                      }
                     </div>
-                    <a
-                      href={apiKey.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-400 transition-colors"
-                    >
-                      Get key
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
+                    <p className="text-xs mt-0.5" style={{ color: '#4a3f35' }}>{models}</p>
                   </div>
-
-                  <div className="relative">
-                    <input
-                      type="password"
-                      value={apiKeys[apiKey.key] || ''}
-                      onChange={(e) => handleKeyChange(apiKey.key, e.target.value)}
-                      placeholder={isConfigured ? '••••••••••••••••' : 'Enter API key'}
-                      className="
-                        w-full px-4 py-2.5 bg-zinc-950 border border-zinc-800 rounded-lg
-                        text-sm text-zinc-300 placeholder-zinc-600
-                        focus:outline-none focus:border-amber-500/50 focus:ring-1 focus:ring-amber-500/50
-                      "
-                    />
-                    {hasValue && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <span className="text-xs text-amber-500">Unsaved</span>
-                      </div>
-                    )}
-                  </div>
+                  <a href={url} target="_blank" rel="noopener noreferrer"
+                    className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                    style={{ color: '#c9a84c', border: '1px solid rgba(201,168,76,0.2)', background: 'rgba(201,168,76,0.05)' }}>
+                    Get key →
+                  </a>
                 </div>
               );
             })}
           </div>
-        </section>
+        )}
+      </div>
 
-        {/* Model Preferences */}
-        <section className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
-          <h2 className="text-lg font-semibold text-zinc-200 mb-4">Default Model</h2>
-          <ModelSelector
-            selectedModel={preferredModel}
-            onModelChange={setPreferredModel}
-          />
-        </section>
-
-        {/* Auto-purchase */}
-        <section className="bg-zinc-900 rounded-xl border border-zinc-800 p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-zinc-200">Auto-purchase Extensions</h2>
-              <p className="text-sm text-zinc-500 mt-1">
-                Automatically purchase character extensions when needed
-              </p>
-            </div>
-            <button
-              onClick={() => setAutoPurchase(!autoPurchase)}
-              className={`
-                relative w-14 h-7 rounded-full transition-colors
-                ${autoPurchase ? 'bg-amber-500' : 'bg-zinc-700'}
-              `}
-            >
-              <span
-                className={`
-                  absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform
-                  ${autoPurchase ? 'translate-x-7' : 'translate-x-0'}
-                `}
-              />
-            </button>
-          </div>
-        </section>
-
-        {/* Save Button */}
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="
-            w-full flex items-center justify-center gap-2 py-3 px-6
-            bg-amber-500 hover:bg-amber-400 disabled:bg-zinc-800
-            text-black font-medium rounded-xl transition-colors
-          "
-        >
-          {saving ? (
-            <>
-              <RefreshCw className="w-5 h-5 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-5 h-5" />
-              Save Settings
-            </>
-          )}
-        </button>
+      {/* How to add keys */}
+      <div className="rounded-2xl p-6" style={{ background: '#161210', border: '1px solid #2a2218' }}>
+        <h3 className="font-serif text-base font-semibold mb-3" style={{ color: '#ede6d6' }}>
+          How to add API keys
+        </h3>
+        <ol className="text-sm space-y-2" style={{ color: '#8a7a68' }}>
+          <li>1. Open <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#0d0b08', color: '#c9a84c' }}>~/.wholesaling-system/StoryChain/.env</code> on your server</li>
+          <li>2. Add the key, e.g. <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#0d0b08', color: '#c9a84c' }}>GROQ_API_KEY=gsk_...</code></li>
+          <li>3. Restart the server: <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#0d0b08', color: '#c9a84c' }}>sudo systemctl restart storychain</code></li>
+        </ol>
       </div>
     </div>
   );

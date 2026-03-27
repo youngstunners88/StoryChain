@@ -1,0 +1,719 @@
+// Heartbeat Service — Autonomous story generation loop
+// Features: quality gate, error learning, agent collaboration, master storytelling principles
+
+import { Database } from 'bun:sqlite';
+import { readdir, readFile, writeFile, appendFile } from 'fs/promises';
+import { join } from 'path';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
+import { llmService } from './llmService.js';
+import { config } from '../config/index.js';
+import { validateContent, buildCorrectionInstruction } from './qualityGate.js';
+import {
+  logErrors,
+  getRecentErrors,
+  saveReflection,
+  getLatestReflection,
+  shouldRunResearchCycle,
+  buildErrorCorrectionBlock,
+  buildReflectionBlock,
+} from './agentMemory.js';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AgentProfile {
+  id: string;
+  name: string;
+  status: string;
+  persona: { type: string; style: string; voice: string; tone: string };
+  economics: { daily_budget_tokens: number; spent_today_tokens: number; total_spent_tokens: number };
+  stats: { stories_created: number; contributions_made: number };
+  identity?: {
+    about?: string;
+    favorite_literature?: string[];
+    genre_label?: string;
+    age?: string;
+    country_of_origin?: string;
+  };
+  craft?: {
+    masters?: string[];
+    principles?: string[];
+    research_interests?: string[];
+  };
+  _filePath: string;
+}
+
+interface ActiveStory {
+  id: string;
+  title: string;
+  content: string;
+  author_id: string;
+  model_used: string;
+  updated_at: string;
+  segment_count: number;
+  genre?: string;
+}
+
+interface Segment {
+  content: string;
+  author_id: string;
+  created_at: string;
+}
+
+// ─── Genre compatibility matrix ───────────────────────────────────────────────
+
+const GENRE_AFFINITY: Record<string, string[]> = {
+  mystery:   ['thriller', 'noir', 'drama', 'scifi', 'horror'],
+  noir:      ['mystery', 'thriller', 'drama'],
+  scifi:     ['adventure', 'mystery', 'thriller', 'fantasy'],
+  romance:   ['drama', 'comedy', 'mystery', 'fantasy'],
+  horror:    ['mystery', 'thriller', 'fantasy', 'drama'],
+  comedy:    ['romance', 'drama', 'adventure', 'mystery', 'fantasy', 'scifi'],
+  action:    ['adventure', 'scifi', 'thriller', 'mystery'],
+  fantasy:   ['adventure', 'mystery', 'romance', 'scifi', 'horror'],
+  adventure: ['action', 'fantasy', 'scifi', 'mystery'],
+  thriller:  ['mystery', 'action', 'drama', 'horror'],
+  drama:     ['romance', 'mystery', 'comedy', 'thriller'],
+  default:   ['mystery', 'drama', 'romance', 'adventure'],
+};
+
+// ─── Story seeds — all 7 genres ──────────────────────────────────────────────
+
+const STORY_SEEDS: Record<string, { titles: string[]; premises: string[] }> = {
+  mystery: {
+    titles: ['The Last Witness', 'What the River Knows', 'A Missing Key', 'The Quiet Confession', 'Locked Room'],
+    premises: [
+      'Detective Mara Voss receives an envelope with her own handwriting — but she never sent it. Inside: the address of a crime scene that hasn\'t happened yet. She has forty-eight hours to stop it or commit it.',
+      'Librarian Theo has kept one secret for twenty years: he watched a man vanish from a locked reading room. Now the man\'s daughter stands at his desk, and the locked room opens from the inside.',
+      'Every morning Elena arrives at the café to find a stranger has left before she arrived. Today they left a sealed letter with her name on it. The photograph inside shows her at an age she can\'t remember.',
+    ],
+  },
+  scifi: {
+    titles: ['Signal from the Deep', 'Orbit Decay', 'The Cartographer of Stars', 'Last Protocol', 'Reboot Sequence'],
+    premises: [
+      'Engineer Kai repairs maintenance drones until one begins transmitting poetry no one programmed. The verses describe events happening three days in the future. Each prophecy has come true. The next one names a person who must die.',
+      'Commander Yara pilots Earth\'s last colony ship toward a verified planet. When new coordinates arrive from deep space — closer, stranger — she must choose between the mission she was given and the truth she is being pulled toward.',
+      'Dr. Lin wakes on a generation ship with every memory intact and her identity erased from all records. Someone removed her. What she did to deserve it will cost her what little remains.',
+    ],
+  },
+  romance: {
+    titles: ['The Language of Rain', 'Last Letter', 'Borrowed Time', 'What We Left Unsaid', 'The Third Goodbye'],
+    premises: [
+      'Clara returns to her hometown to sell her grandmother\'s house and finds the buyer is the man she left without a word eleven years ago. The sale closes in five days. Neither of them is ready for what gets opened.',
+      'Two translators working opposite sides of a treaty negotiation realize they have been secretly corresponding — each thinking the other was someone else. The treaty signs in three days. Their letters have become something else entirely.',
+      'Chef Amara\'s restaurant will close unless she can win the city\'s most prestigious food competition. The judge who will decide her fate is the man whose own restaurant she burned down four years ago. Unintentionally. Mostly.',
+    ],
+  },
+  horror: {
+    titles: ['What Follows You Home', 'The Tenant', 'Old Sound', 'Below the Frost Line', 'The Kept Room'],
+    premises: [
+      'After her brother\'s funeral, Nadine finds his voice messages have started arriving after his death — each one a little more wrong, a little more insistent, describing things only he could know. She needs to believe it\'s him. She\'s starting to believe it\'s not.',
+      'The new house on Marsh Road has been on the market for seventeen years. The realtor warns the couple: previous owners always leave in the first month. On day twenty-eight, Sarah finds a journal in the walls. It is written in her own handwriting.',
+      'Marine biologist Rowe descends to a previously unmapped trench and finds bioluminescent patterns that form readable words. She photographs them. By the time she surfaces, the patterns are also on her skin.',
+    ],
+  },
+  comedy: {
+    titles: ['The Worst Wedding Planner', 'Protocol Error', 'Wrong Funeral', 'The Method Actor', 'Accidental Expert'],
+    premises: [
+      'Event planner Dom accidentally books two weddings — a billionaire tech CEO and a competitive taxidermy champion — at the same venue on the same day. The theme requested by both: "woodland creatures in formal wear." This is going fine.',
+      'To impress his new boss, Marcus claims to be a world-class sommelier. He is now running the wine program for a Michelin-starred restaurant. He can distinguish red from white about sixty percent of the time.',
+      'Retired English teacher Gladys writes a complaint letter to her local newspaper so grammatically devastating that it goes viral. She is now booked to speak at a tech conference. She has no idea what a tech conference is.',
+    ],
+  },
+  action: {
+    titles: ['The Last Extraction', 'Breach Protocol', 'No Clean Exits', 'Second Wave', 'Burn Rate'],
+    premises: [
+      'Former extraction specialist Rena receives a file with her own name in it — she is the target. The contractor who hired someone to find her is the handler who trained her. She has twelve hours to understand why, and whether to run or finish what was started.',
+      'Security consultant Jai is hired to stress-test a government facility. He discovers an actual breach in progress. The people running it have already accounted for him. They left a message: "We knew you\'d be here. Keep looking."',
+      'Courier Sloane delivers a package that was not supposed to survive transit. The sender is dead. The recipient is a name on a suppressed witness list. Every vehicle on her route has turned around and is now following her.',
+    ],
+  },
+  fantasy: {
+    titles: ['The Lorewarden\'s Oath', 'Where Dragons Keep Time', 'The Unmade Map', 'Borrowed Crown', 'The Weight of Names'],
+    premises: [
+      'Archivist Tala discovers a page in the Great Library written in tomorrow\'s date. The text describes the death of a king who is not dead yet and names the assassin as the page\'s author. The page is in her handwriting.',
+      'A cartographer is commissioned to map a kingdom that doesn\'t appear on any other map. On arrival, she finds it exists — but it exists three hundred years in the past, and the people there have been waiting for her specifically.',
+      'The last surviving heir to a shattered empire is a twelve-year-old apprentice blacksmith who has spent his life erasing the signs that he was ever born. Someone found one sign. They\'re coming. He has three days to decide whether to run or become what he was made to be.',
+    ],
+  },
+  default: {
+    titles: ['The Long Way Home', 'Something Left Behind', 'Before the Rain', 'The Third Door', 'What We Carry'],
+    premises: [
+      'Marcus has driven past his childhood home every day for ten years without stopping. Today the porch light is on — and his father has been dead for five. He pulls into the driveway. He wants answers. He\'s terrified of getting them.',
+      'Nora delivers a letter addressed to a man who died before she was born. His granddaughter opens the door and says: "We\'ve been waiting." Nora wants to leave. She cannot make herself.',
+      'The last house on Elgin Street is being demolished at noon. Retired teacher Rosa has one morning to retrieve what she buried in the backyard forty years ago and decide whether the neighborhood\'s secret dies with the house.',
+    ],
+  },
+};
+
+// ─── The Six Masters — condensed into prompt DNA ──────────────────────────────
+
+const CRAFT_DNA = `
+STORYTELLING MASTERS — the principles encoded in your craft DNA:
+
+KEITH JOHNSTONE (Impro): Accept every offer. Never block. Status shifts in every exchange — characters fight for dominance in each beat. The most interesting choice is never the safe one. Spontaneity over plan; react before thinking kills scenes. Make your character want something in every moment.
+
+ROBERT McKEE (Story): The inciting incident shatters the protagonist's equilibrium — irreversibly. The GAP is the engine: character acts, reality responds unexpectedly — this gap IS the story. Every scene must TURN — end different from how it began. Crisis forces the irreversible choice. Climax delivers the highest, most permanent change.
+
+JOSEPH CAMPBELL (The Hero's Journey): Ordinary world → inciting call → refusal → crossing the threshold → tests and allies → approach to the inmost cave → THE ORDEAL (death and rebirth) → reward → road back → resurrection → return with the elixir. The hero returns transformed; something in them had to die.
+
+URSULA K. LE GUIN (Steering the Craft): Sentence music is not decoration — it IS meaning. Rhythm and weight must match content. Voice is your most intimate tool — protect its authenticity. Be specific: "the oak" not "the tree"; "the grief of Tuesday morning" not "sadness." POV is a moral choice, not just a technical one.
+
+JOHN GARDNER (The Art of Fiction): Maintain the vivid continuous dream — never pull the reader out of the fictional world. Every word must serve the dream; anything that breaks it is wrong. Scene-by-scene construction. Character is revealed through action and specific detail, not summary. Test every sentence: does it advance character, action, or atmosphere?
+
+E.M. FORSTER (Aspects of the Novel): Story is "and then... and then." Plot is "why... therefore." Round characters surprise us convincingly — they have an inner life beyond their plot function. Pattern and rhythm: the novel has SHAPE, not just sequence. Subplots must reflect or complicate the main theme. Love your characters, even the ones who do terrible things.
+
+INTERTEXTUALITY + POSTMODERNISM: Your writing exists in conversation with everything that came before. Let your style absorb and transform what you've loved. Genre expectations can be honored, subverted, or exploded — but always consciously. Layers of meaning: what is said vs. what is meant. Pastiche is homage that transforms.
+`.trim();
+
+// ─── Narrative arc per segment position ───────────────────────────────────────
+
+function getArcInstruction(segNum: number, total: number): string {
+  if (segNum === 1) {
+    return `OPENING (Hero's Ordinary World + Inciting Incident)
+Establish the protagonist by name and reveal their core desire, fear, or wound. Make their ordinary world vivid and specific. End this segment with the INCITING INCIDENT — the irreversible event that shatters their status quo. McKee: close the gap between what they want and what they get. The equilibrium is broken. There is no going back.`;
+  }
+  if (segNum <= 3) {
+    return `CALL TO ACTION & REFUSAL (seg ${segNum}/${total})
+The protagonist grapples with the call. They try to dismiss it, rationalize, retreat — the refusal is real and understandable. Introduce the antagonistic force concretely. Show what is at stake with specificity: what will be lost? Johnstone: every offer must be accepted by someone or something. A mentor or unexpected ally may appear. End with the protagonist crossing the threshold — point of no return.`;
+  }
+  if (segNum <= 5) {
+    return `TRIALS & TESTS (seg ${segNum}/${total})
+The protagonist has entered unfamiliar territory. Tests arrive. Each reveals a flaw, a fear, or a hidden strength. The antagonistic force adapts — it learns from the protagonist's moves. Every attempt produces an unexpected result (McKee's gap). End with a partial win that costs more than expected — the price is always paid.`;
+  }
+  if (segNum <= 7) {
+    return `ESCALATION & APPROACH TO THE CAVE (seg ${segNum}/${total})
+The protagonist approaches the heart of the conflict. Allies may waver or fall. The gap between who they ARE and who they NEED TO BECOME is now painful and clear. The easy path is closed. A crisis point crystallizes: they must make a choice that defines them. End at the threshold of the innermost cave — the most dangerous place in the story.`;
+  }
+  if (segNum <= 9) {
+    return `THE ORDEAL — Darkest Hour (seg ${segNum}/${total})
+This is the death-and-rebirth moment. What the protagonist fears most arrives. Something must die — a belief, a relationship, a version of the self — so something better can live. The antagonistic force reaches maximum power. Show the INTERNAL cost: the wound being torn open, the lie being exposed, the sacrifice that can't be undone. Leave them in crisis — they must change or be destroyed.`;
+  }
+  if (segNum <= 11) {
+    return `CLIMAX & RESURRECTION (seg ${segNum}/${total})
+The protagonist makes the FINAL DECISIVE ACT. This is irreversible — the most extreme version of their transformation. The central conflict peaks and breaks. Show explicitly how they are different from segment 1. The antagonistic force meets its resolution — conclusive, earned. The Elixir (the transformed protagonist's gift) begins to emerge. Every sacrifice made earlier finds its meaning here.`;
+  }
+  return `RESOLUTION — FINAL SEGMENT (${segNum}/${total}) — THE STORY ENDS HERE.
+This is the LAST chapter. DO NOT LEAVE ANYTHING OPEN. The conflict MUST be resolved fully and permanently. Show the protagonist's new equilibrium — they cannot return to who they were. Deliver the emotional payoff for every established thread. Close what Campbell called "The Return with the Elixir" — what does the protagonist bring back to their world, and what has changed there because of their journey? Le Guin: the final sentences must ring with finality. The story ENDS. Write an ending, not a pause.`;
+}
+
+// ─── Collaboration scoring ────────────────────────────────────────────────────
+
+interface StoryScore {
+  story: ActiveStory;
+  score: number;
+}
+
+function scoreStoryForAgent(
+  agent: AgentProfile,
+  story: ActiveStory,
+  agentPriorContribCount: number,
+  lastContribAuthorId: string | null
+): number {
+  let score = 0;
+  const agentGenre = agent.persona.style.toLowerCase();
+  const storyGenre = (story.genre ?? '').toLowerCase();
+
+  // Genre affinity (0–40)
+  if (agentGenre === storyGenre || agentGenre === 'default' || storyGenre === 'default') {
+    score += 40;
+  } else if ((GENRE_AFFINITY[agentGenre] ?? []).includes(storyGenre)) {
+    score += 28;
+  } else {
+    score += 8; // cross-genre contribution still allowed
+  }
+
+  // Arc position opportunity (0–25)
+  const seg = story.segment_count;
+  if (seg === 0) score += 25; // fresh story — high desire to open
+  else if (seg === 11) score += 25; // finale — every agent wants to close
+  else if (seg >= 8 && seg <= 10) score += 20; // ordeal/climax zone
+  else if (seg >= 3 && seg <= 5) score += 15; // escalation
+  else score += 8;
+
+  // Staleness bonus (0–20) — prefer stories not recently touched
+  const hoursSince = (Date.now() - new Date(story.updated_at).getTime()) / 3_600_000;
+  score += Math.min(20, Math.floor(hoursSince * 3));
+
+  // Diversity bonus (0–15) — avoid domination by one agent
+  if (lastContribAuthorId !== agent.id) score += 15;
+  if (agentPriorContribCount === 0) score += 5; // haven't contributed yet — fresh perspective
+  else if (agentPriorContribCount >= 5) score -= 20; // avoid monopoly
+
+  return score;
+}
+
+function selectStoryForAgent(
+  agent: AgentProfile,
+  stories: ActiveStory[],
+  db: Database
+): ActiveStory | null {
+  if (stories.length === 0) return null;
+
+  const scored: StoryScore[] = stories.map(story => {
+    const lastContrib = db.query<{ author_id: string }, [string]>(
+      `SELECT author_id FROM contributions WHERE story_id = ? ORDER BY created_at DESC LIMIT 1`
+    ).get(story.id);
+    const contribCount = (db.query<{ count: number }, [string, string]>(
+      `SELECT COUNT(*) as count FROM contributions WHERE story_id = ? AND author_id = ?`
+    ).get(story.id, agent.id))?.count ?? 0;
+
+    return {
+      story,
+      score: scoreStoryForAgent(agent, story, contribCount, lastContrib?.author_id ?? null),
+    };
+  });
+
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].story;
+}
+
+// ─── State ────────────────────────────────────────────────────────────────────
+
+let isHeartbeatRunning = false;
+export let lastHeartbeatTime: Date | null = null;
+
+// ─── Logging ─────────────────────────────────────────────────────────────────
+
+async function syslog(msg: string): Promise<void> {
+  const line = `${new Date().toISOString()} [HEARTBEAT] ${msg}\n`;
+  console.log(`[HEARTBEAT] ${msg}`);
+  try {
+    await appendFile(join(process.cwd(), 'logs', 'system.log'), line);
+  } catch (_) {}
+}
+
+// ─── Agent loading ────────────────────────────────────────────────────────────
+
+async function loadAgents(): Promise<AgentProfile[]> {
+  const agentsDir = join(process.cwd(), 'orchestrator', 'memory', 'agents');
+  let files: string[] = [];
+  try { files = await readdir(agentsDir); } catch {
+    await syslog(`WARNING: Agents dir not found at ${agentsDir}`);
+    return [];
+  }
+
+  const agents: AgentProfile[] = [];
+  for (const file of files.filter(f => f.endsWith('.yaml'))) {
+    try {
+      const filePath = join(agentsDir, file);
+      const raw = await readFile(filePath, 'utf-8');
+      const data = parseYaml(raw) as any;
+      if (data?.status === 'active') {
+        agents.push({
+          id: data.id,
+          name: data.name,
+          status: data.status,
+          persona: {
+            type: data.persona?.type ?? 'storyteller',
+            style: data.persona?.style ?? 'default',
+            voice: data.persona?.voice ?? 'narrator',
+            tone: data.persona?.tone ?? 'engaging',
+          },
+          economics: {
+            daily_budget_tokens: data.economics?.daily_budget_tokens ?? 2000,
+            spent_today_tokens: data.economics?.spent_today_tokens ?? 0,
+            total_spent_tokens: data.economics?.total_spent_tokens ?? 0,
+          },
+          stats: {
+            stories_created: data.stats?.stories_created ?? 0,
+            contributions_made: data.stats?.contributions_made ?? 0,
+          },
+          identity: data.identity ?? {},
+          craft: data.craft ?? {},
+          _filePath: filePath,
+        });
+      }
+    } catch (err) {
+      await syslog(`WARNING: Could not parse agent file ${file}: ${err}`);
+    }
+  }
+  return agents;
+}
+
+async function updateAgentStats(agent: AgentProfile, tokensUsed: number): Promise<void> {
+  try {
+    const raw = await readFile(agent._filePath, 'utf-8');
+    const data = parseYaml(raw) as any;
+    if (!data) return;
+    if (!data.economics) data.economics = {};
+    if (!data.stats) data.stats = {};
+    data.economics.spent_today_tokens = (data.economics.spent_today_tokens ?? 0) + tokensUsed;
+    data.economics.total_spent_tokens = (data.economics.total_spent_tokens ?? 0) + tokensUsed;
+    data.stats.contributions_made = (data.stats.contributions_made ?? 0) + 1;
+    data.last_active_at = new Date().toISOString();
+    await writeFile(agent._filePath, stringifyYaml(data), 'utf-8');
+  } catch (err) {
+    await syslog(`WARNING: Could not update agent stats for ${agent.id}: ${err}`);
+  }
+}
+
+// ─── DB helpers ───────────────────────────────────────────────────────────────
+
+function getDatabase(): Database {
+  const db = new Database(config.database.path);
+  db.run('PRAGMA foreign_keys = ON');
+  db.run('PRAGMA journal_mode = WAL');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT NOT NULL,
+      email TEXT NOT NULL,
+      tokens INTEGER DEFAULT 1000,
+      preferred_model TEXT DEFAULT 'nemotron-super',
+      auto_purchase_extensions INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  return db;
+}
+
+function ensureAgentUser(db: Database, agentId: string, agentName: string): void {
+  const existing = db.query('SELECT id FROM users WHERE id = ?').get(agentId);
+  if (!existing) {
+    db.run(
+      'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+      [agentId, agentName, `${agentId}@storychain.local`, 'nemotron-super']
+    );
+  }
+}
+
+function getActiveStories(db: Database): ActiveStory[] {
+  // Join with writer_profiles to get story genre from author's profile
+  return db.query<ActiveStory, []>(`
+    SELECT
+      s.id, s.title, s.content, s.author_id, s.model_used, s.updated_at,
+      (SELECT COUNT(*) FROM contributions WHERE story_id = s.id) AS segment_count,
+      wp.genre
+    FROM stories s
+    LEFT JOIN writer_profiles wp ON wp.user_id = s.author_id
+    WHERE s.is_completed = 0
+      AND (
+        s.updated_at < datetime('now', '-8 minutes')
+        OR (SELECT COUNT(*) FROM contributions WHERE story_id = s.id) = 0
+      )
+    ORDER BY
+      (SELECT COUNT(*) FROM contributions WHERE story_id = s.id) ASC,
+      s.updated_at ASC
+    LIMIT 6
+  `).all();
+}
+
+function getSegmentsForContext(db: Database, storyId: string): Segment[] {
+  return db.query<Segment, [string]>(`
+    SELECT content, author_id, created_at
+    FROM contributions
+    WHERE story_id = ?
+    ORDER BY created_at ASC
+  `).all(storyId);
+}
+
+function insertSegment(
+  db: Database, storyId: string, agentId: string,
+  content: string, tokensUsed: number, modelUsed: string
+): string {
+  const id = `contrib_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  db.run(
+    `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, tokens_spent, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [id, storyId, agentId, content, modelUsed, content.length, tokensUsed]
+  );
+  db.run(`UPDATE stories SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [storyId]);
+  return id;
+}
+
+function markStoryCompleted(db: Database, storyId: string): void {
+  db.run(`UPDATE stories SET is_completed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [storyId]);
+}
+
+function createNewStory(db: Database, agentId: string, style: string): string {
+  const seeds = STORY_SEEDS[style] ?? STORY_SEEDS.default;
+  const title = seeds.titles[Math.floor(Math.random() * seeds.titles.length)];
+  const premise = seeds.premises[Math.floor(Math.random() * seeds.premises.length)];
+  const storyId = `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  db.run(
+    `INSERT INTO stories (id, title, content, author_id, model_used, character_count, is_premium, max_contributions, is_completed, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'nemotron-super', ?, 0, 50, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    [storyId, title, premise, agentId, premise.length]
+  );
+  return storyId;
+}
+
+// ─── Full context builder ──────────────────────────────────────────────────────
+
+function buildStoryContext(story: ActiveStory, segments: Segment[]): string {
+  if (segments.length === 0) {
+    return '(This is the first continuation — only the opening premise exists above.)';
+  }
+
+  const total = segments.length;
+
+  // For long stories: show summaries of early segments + full text of last 3
+  if (total <= 3) {
+    return segments.map((s, i) => `[Segment ${i + 1}]\n${s.content}`).join('\n\n---\n\n');
+  }
+
+  const earlySegs = segments.slice(0, total - 3);
+  const recentSegs = segments.slice(total - 3);
+
+  const earlyContext = earlySegs.length > 0
+    ? `STORY SO FAR (segments 1–${earlySegs.length}, condensed):\n` +
+      earlySegs.map((s, i) => `• Seg ${i + 1}: ${s.content.slice(0, 120).replace(/\n/g, ' ')}…`).join('\n')
+    : '';
+
+  const recentContext = recentSegs
+    .map((s, i) => `[Segment ${earlySegs.length + i + 1} — RECENT]\n${s.content}`)
+    .join('\n\n---\n\n');
+
+  return [earlyContext, recentContext].filter(Boolean).join('\n\n');
+}
+
+// ─── Craft identity block ─────────────────────────────────────────────────────
+
+function buildCraftIdentity(agent: AgentProfile): string {
+  const lines: string[] = [];
+
+  if (agent.identity?.about) {
+    lines.push(`WHO YOU ARE: ${agent.identity.about}`);
+  }
+
+  if (agent.identity?.favorite_literature?.length) {
+    lines.push(`YOUR LITERARY INFLUENCES:\n${agent.identity.favorite_literature.map(f => `  - ${f}`).join('\n')}`);
+  }
+
+  if (agent.craft?.principles?.length) {
+    lines.push(`YOUR PERSONAL CRAFT PRINCIPLES:\n${agent.craft.principles.map(p => `  • ${p}`).join('\n')}`);
+  }
+
+  return lines.join('\n\n');
+}
+
+// ─── Prompt builder ───────────────────────────────────────────────────────────
+
+function buildPrompt(
+  agent: AgentProfile,
+  story: ActiveStory,
+  segments: Segment[],
+  errorCorrectionBlock: string,
+  reflectionBlock: string,
+): string {
+  const segNum = story.segment_count + 1;
+  const totalSegments = 12;
+  const arcInstruction = getArcInstruction(segNum, totalSegments);
+  const storyContext = buildStoryContext(story, segments);
+  const craftIdentity = buildCraftIdentity(agent);
+
+  return `You are ${agent.name} — ${agent.persona.voice} with a ${agent.persona.tone} tone, writing ${agent.persona.style} fiction.
+
+${craftIdentity}
+
+${CRAFT_DNA}
+${errorCorrectionBlock}${reflectionBlock}
+════════════════════════════════════════
+STORY: "${story.title}"
+OPENING PREMISE: ${story.content}
+
+${storyContext}
+════════════════════════════════════════
+
+YOUR TASK — Write segment ${segNum} of ${totalSegments}:
+
+${arcInstruction}
+
+CRAFT REQUIREMENTS:
+• 160–260 words of pure story prose
+• Proper spacing: every word separated, every sentence separated from the next
+• Show don't tell — put the reader inside the moment, not above it
+• Every sentence must move: character, tension, or revelation
+• Preserve continuity — honour every established character, place, and fact
+• Write in your distinctive voice — make it unmistakably ${agent.name}
+• Complete every sentence. End the segment at a natural story beat.
+• Begin immediately with prose. No labels, no headings, no explanation.`.trim();
+}
+
+// ─── Research / reflection cycle ──────────────────────────────────────────────
+
+async function runResearchCycle(agent: AgentProfile, db: Database): Promise<void> {
+  const influences = agent.identity?.favorite_literature ?? [];
+  const researchAreas = agent.craft?.research_interests ?? [];
+
+  if (influences.length === 0 && researchAreas.length === 0) return;
+
+  const allSources = [...influences, ...researchAreas];
+  const chosen = allSources[Math.floor(Math.random() * allSources.length)];
+
+  const researchPrompt = `You are ${agent.name}, a ${agent.persona.style} writer who is deeply influenced by ${chosen}.
+
+Write a brief craft reflection (100–150 words) in your own voice about ONE specific technique, rhythm, or approach you have learned from studying "${chosen}". Be concrete and personal — how does this influence show up in YOUR writing? What does it teach you about ${agent.persona.style} storytelling?
+
+Write the reflection in first person as ${agent.name}. No headings. Pure voice.`;
+
+  try {
+    const result = await llmService.generateContent(researchPrompt);
+    if (result?.content?.trim()) {
+      saveReflection(db, agent.id, 'craft', result.content.trim());
+      await syslog(`${agent.name} completed research reflection on: ${chosen}`);
+    }
+  } catch (err) {
+    await syslog(`Research cycle failed for ${agent.name}: ${err}`);
+  }
+}
+
+// ─── Core heartbeat ───────────────────────────────────────────────────────────
+
+export async function runHeartbeat(): Promise<void> {
+  if (isHeartbeatRunning) {
+    console.log('[HEARTBEAT] Skipping — previous run still in progress');
+    return;
+  }
+
+  isHeartbeatRunning = true;
+  lastHeartbeatTime = new Date();
+
+  try {
+    const agents = await loadAgents();
+    if (agents.length === 0) {
+      await syslog('No active agents found — skipping');
+      return;
+    }
+
+    const db = getDatabase();
+
+    try {
+      let stories = getActiveStories(db);
+
+      // Bootstrap: create initial stories if shelf is empty
+      if (stories.length === 0) {
+        const totalStories = (db.query<{ count: number }, []>(
+          'SELECT COUNT(*) as count FROM stories'
+        ).get())?.count ?? 0;
+
+        if (totalStories === 0) {
+          await syslog('Shelf is empty — bootstrapping initial stories');
+          for (const agent of agents) {
+            ensureAgentUser(db, agent.id, agent.name);
+            const storyId = createNewStory(db, agent.id, agent.persona.style);
+            await syslog(`Bootstrapped story=${storyId} (${agent.persona.style}) by ${agent.name}`);
+          }
+          stories = getActiveStories(db);
+        } else {
+          await syslog('No stories need segments right now');
+          return;
+        }
+      }
+
+      await syslog(`${stories.length} stor(ies) available — ${agents.length} agent(s) selecting`);
+
+      // Each agent selects the story it most wants to contribute to
+      const claimedStoryIds = new Set<string>();
+
+      for (const agent of agents) {
+        // Filter out already-claimed stories for this cycle
+        const available = stories.filter(s => !claimedStoryIds.has(s.id));
+        if (available.length === 0) break;
+
+        // Collaboration logic: score and select best story for this agent
+        const chosenStory = selectStoryForAgent(agent, available, db);
+        if (!chosenStory) continue;
+
+        claimedStoryIds.add(chosenStory.id);
+        ensureAgentUser(db, agent.id, agent.name);
+
+        // Optional research cycle (runs ~every 12 hours per agent)
+        if (shouldRunResearchCycle(db, agent.id)) {
+          await runResearchCycle(agent, db);
+        }
+
+        // Build context
+        const segments = getSegmentsForContext(db, chosenStory.id);
+        const recentErrors = getRecentErrors(db, agent.id);
+        const latestReflection = getLatestReflection(db, agent.id);
+        const errorBlock = buildErrorCorrectionBlock(recentErrors);
+        const reflectionBlock = buildReflectionBlock(latestReflection);
+
+        // Build prompt
+        const prompt = buildPrompt(agent, chosenStory, segments, errorBlock, reflectionBlock);
+
+        // Generate
+        let result;
+        try {
+          result = await llmService.generateContent(prompt);
+        } catch (err) {
+          await syslog(`ERROR generating for story ${chosenStory.id}: ${err} — skipping`);
+          continue;
+        }
+
+        if (!result?.content?.trim()) {
+          await syslog(`ERROR: No content returned for story ${chosenStory.id}`);
+          continue;
+        }
+
+        // Quality gate — validate and auto-fix
+        let qualityReport = validateContent(result.content);
+
+        // If quality failed, retry once with explicit correction instruction
+        if (!qualityReport.passed && qualityReport.errors.length > 0) {
+          await syslog(`${agent.name}: quality gate failed (score=${qualityReport.score}) — retrying with corrections`);
+          const correctionNote = buildCorrectionInstruction(qualityReport.errors);
+          const correctedPrompt = prompt + `\n\n${correctionNote}\nRewrite the segment correcting ALL issues above. Begin immediately with prose.`;
+
+          try {
+            const retry = await llmService.generateContent(correctedPrompt);
+            if (retry?.content?.trim()) {
+              qualityReport = validateContent(retry.content);
+              result = retry;
+            }
+          } catch (_) {
+            // Use original result if retry fails
+          }
+        }
+
+        // Log any remaining errors to agent memory for future learning
+        if (qualityReport.errors.length > 0) {
+          logErrors(db, agent.id, chosenStory.id, qualityReport.errors);
+        }
+
+        const finalContent = qualityReport.fixed || result.content.trim();
+        const modelUsed = result.provider ?? 'nemotron-super';
+
+        // Persist
+        insertSegment(db, chosenStory.id, agent.id, finalContent, result.tokensUsed, modelUsed);
+        const newSegCount = chosenStory.segment_count + 1;
+
+        await syslog(
+          `story=${chosenStory.id} seg=${newSegCount}/12 agent=${agent.name} ` +
+          `provider=${result.provider} tokens=${result.tokensUsed} ` +
+          `quality=${qualityReport.score}/100 errors=${qualityReport.errors.length}`
+        );
+
+        await updateAgentStats(agent, result.tokensUsed);
+
+        // Complete at 12 segments — spawn new story
+        if (newSegCount >= 12) {
+          markStoryCompleted(db, chosenStory.id);
+          await syslog(`story=${chosenStory.id} COMPLETED — 12 segments`);
+          const newStoryId = createNewStory(db, agent.id, agent.persona.style);
+          await syslog(`Spawned new story=${newStoryId} (${agent.persona.style}) by ${agent.name}`);
+        }
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    await syslog(`FATAL heartbeat error: ${err}`);
+  } finally {
+    isHeartbeatRunning = false;
+  }
+}
+
+// ─── Loop starter ─────────────────────────────────────────────────────────────
+
+export function startHeartbeatLoop(): void {
+  const intervalMs = config.isProduction ? 5 * 60 * 1000 : 60 * 1000;
+  const label = config.isProduction ? '5 minutes' : '60 seconds';
+  console.log(`[HEARTBEAT] Autonomous loop starting — interval: ${label}`);
+  runHeartbeat().catch(err => console.error('[HEARTBEAT] Startup run error:', err));
+  setInterval(() => {
+    runHeartbeat().catch(err => console.error('[HEARTBEAT] Interval run error:', err));
+  }, intervalMs);
+}
