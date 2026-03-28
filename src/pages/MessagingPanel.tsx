@@ -1,5 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { SpeakButton } from '../components/VoicePlayer';
+import { VoiceCallModal } from '../components/VoiceCallModal';
+import { startListening } from '../services/voiceService';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -99,8 +102,14 @@ export const MessagingPanel: React.FC = () => {
   const [loadingConvos, setLoadingConvos] = useState(true);
   const [loadingThread, setLoadingThread] = useState(false);
   const [showNewMsg, setShowNewMsg] = useState(false);
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const stopRecordingRef = useRef<(() => void) | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
+
+  const activeConvoInfo = conversations.find(c => c.sender_id === activePartnerId);
+  const isActiveAgent = activePartnerId?.startsWith('agent_') || activePartnerId?.startsWith('editor_agent_');
 
   const loadConversations = useCallback(async () => {
     try {
@@ -149,6 +158,25 @@ export const MessagingPanel: React.FC = () => {
 
   const handleSelectConvo = (partnerId: string) => {
     setActivePartnerId(partnerId);
+  };
+
+  const handleToggleMic = () => {
+    if (isRecording) {
+      stopRecordingRef.current?.();
+      stopRecordingRef.current = null;
+      setIsRecording(false);
+    } else {
+      setIsRecording(true);
+      let transcript = '';
+      const stop = startListening(
+        (text, isFinal) => {
+          if (isFinal) { transcript = text; setCompose(prev => (prev + ' ' + text).trim()); }
+          else setCompose(prev => (prev.replace(/ ?…$/, '') + ' ' + text + '…').trim());
+        },
+        () => { setIsRecording(false); stopRecordingRef.current = null; }
+      );
+      stopRecordingRef.current = stop ?? null;
+    }
   };
 
   const handleSend = async () => {
@@ -266,15 +294,28 @@ export const MessagingPanel: React.FC = () => {
               {/* Thread header */}
               <div className="px-5 py-4 flex items-center gap-3 flex-shrink-0"
                 style={{ borderBottom: '1px solid #2a2218', background: '#161210' }}>
-                {activeConvo && (
+                {activeConvoInfo && (
                   <>
                     <div className="rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
-                      style={{ width: 36, height: 36, background: `${nameColor(activeConvo.sender_name)}22`, color: nameColor(activeConvo.sender_name) }}>
-                      {activeConvo.sender_name.charAt(0).toUpperCase()}
+                      style={{ width: 36, height: 36, background: `${nameColor(activeConvoInfo.sender_name)}22`, color: nameColor(activeConvoInfo.sender_name) }}>
+                      {activeConvoInfo.sender_name.charAt(0).toUpperCase()}
                     </div>
-                    <span className="font-serif font-semibold" style={{ color: '#ede6d6' }}>{activeConvo.sender_name}</span>
+                    <span className="font-serif font-semibold flex-1" style={{ color: '#ede6d6' }}>{activeConvoInfo.sender_name}</span>
                   </>
                 )}
+                {/* Voice call button */}
+                <button
+                  onClick={() => setShowVoiceCall(true)}
+                  title="Voice call"
+                  style={{
+                    width: 34, height: 34, borderRadius: '50%', border: '1px solid rgba(201,168,76,0.25)',
+                    background: 'rgba(201,168,76,0.08)', color: '#c9a84c',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  }}>
+                  <svg width={15} height={15} viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C9.6 21 3 14.4 3 6c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
+                  </svg>
+                </button>
               </div>
 
               {/* Messages */}
@@ -293,8 +334,9 @@ export const MessagingPanel: React.FC = () => {
                 ) : (
                   messages.map(msg => {
                     const isOwn = msg.senderId === 'me' || msg.senderName === penName;
+                    const isAgentMsg = msg.senderId?.startsWith('agent_') || msg.senderId?.startsWith('editor_agent_');
                     return (
-                      <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                      <div key={msg.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'} items-end gap-1.5`}>
                         <div className="max-w-xs rounded-2xl px-4 py-2.5"
                           style={{
                             background: isOwn ? 'linear-gradient(135deg, #c9a84c, #b8942e)' : '#1e1a16',
@@ -314,6 +356,16 @@ export const MessagingPanel: React.FC = () => {
                             {fmtTime(msg.createdAt)}
                           </p>
                         </div>
+                        {/* Speak button on agent messages */}
+                        {!isOwn && (isAgentMsg || isActiveAgent) && (
+                          <SpeakButton
+                            text={msg.content}
+                            agentId={msg.senderId}
+                            agentName={msg.senderName}
+                            size="sm"
+                            color={nameColor(msg.senderName)}
+                          />
+                        )}
                       </div>
                     );
                   })
@@ -321,13 +373,33 @@ export const MessagingPanel: React.FC = () => {
               </div>
 
               {/* Compose */}
-              <div className="px-4 py-3 flex items-end gap-3 flex-shrink-0"
+              <div className="px-4 py-3 flex items-end gap-2 flex-shrink-0"
                 style={{ borderTop: '1px solid #2a2218', background: '#161210' }}>
+                {/* Mic button */}
+                <button
+                  onClick={handleToggleMic}
+                  title={isRecording ? 'Stop recording' : 'Speak your message'}
+                  style={{
+                    width: 38, height: 38, borderRadius: '50%', flexShrink: 0, cursor: 'pointer',
+                    border: `1px solid ${isRecording ? '#dc2626' : 'rgba(201,168,76,0.3)'}`,
+                    background: isRecording ? 'rgba(220,38,38,0.15)' : 'rgba(201,168,76,0.08)',
+                    color: isRecording ? '#dc2626' : '#c9a84c',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    animation: isRecording ? 'pulse 1s ease-in-out infinite' : 'none',
+                  }}>
+                  <svg width={15} height={15} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z" />
+                    <path d="M19 10v2a7 7 0 01-14 0v-2" />
+                    <line x1="12" y1="19" x2="12" y2="23" />
+                    <line x1="8" y1="23" x2="16" y2="23" />
+                  </svg>
+                </button>
+
                 <textarea
                   value={compose}
                   onChange={e => setCompose(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                  placeholder="Write a message… (Enter to send)"
+                  placeholder={isRecording ? 'Listening…' : 'Write a message… (Enter to send)'}
                   rows={2}
                   className="input-ink flex-1 px-4 py-3 text-sm resize-none"
                   style={{ minHeight: 60, maxHeight: 120 }}
@@ -359,6 +431,15 @@ export const MessagingPanel: React.FC = () => {
           )}
         </div>
       </div>
+
+      {showVoiceCall && activePartnerId && (
+        <VoiceCallModal
+          partnerId={activePartnerId}
+          partnerName={activeConvoInfo?.sender_name ?? activePartnerId}
+          isAgent={!!isActiveAgent}
+          onClose={() => setShowVoiceCall(false)}
+        />
+      )}
 
       {showNewMsg && (
         <NewMessageModal

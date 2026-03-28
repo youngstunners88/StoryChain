@@ -11,6 +11,18 @@ export const Settings: React.FC = () => {
   const [savingName, setSavingName] = useState(false);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
+  // Per-provider state: which one is open for input, the input value, and saving state
+  const [openProvider, setOpenProvider] = useState<string | null>(null);
+  const [keyInputs, setKeyInputs] = useState<Record<string, string>>({});
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+
+  const providers = [
+    { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', models: 'Nemotron, Kimi, Qwen, Reka', url: 'https://openrouter.ai/keys' },
+    { key: 'GROQ_API_KEY',       label: 'Groq',        models: 'Llama 3.3, Gemma 2, Mixtral', url: 'https://console.groq.com/keys' },
+    { key: 'ANTHROPIC_API_KEY',  label: 'Anthropic',   models: 'Claude Sonnet', url: 'https://console.anthropic.com/keys' },
+    { key: 'OPENAI_API_KEY',     label: 'OpenAI',      models: 'GPT-4o Mini', url: 'https://platform.openai.com/api-keys' },
+  ];
+
   useEffect(() => {
     fetchWithAuth('/api/llm/validate-keys')
       .then(r => r.json())
@@ -51,12 +63,40 @@ export const Settings: React.FC = () => {
     }
   };
 
-  const providers = [
-    { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', models: 'Nemotron, Kimi, Qwen, Reka', url: 'https://openrouter.ai/keys' },
-    { key: 'GROQ_API_KEY',       label: 'Groq',        models: 'Llama 3.3, Gemma 2, Mixtral', url: 'https://console.groq.com/keys' },
-    { key: 'ANTHROPIC_API_KEY',  label: 'Anthropic',   models: 'Claude Sonnet', url: 'https://console.anthropic.com/keys' },
-    { key: 'OPENAI_API_KEY',     label: 'OpenAI',      models: 'GPT-4o Mini', url: 'https://platform.openai.com/api-keys' },
-  ];
+  const handleToggleProvider = (key: string) => {
+    if (openProvider === key) {
+      setOpenProvider(null);
+    } else {
+      setOpenProvider(key);
+      setKeyInputs(prev => ({ ...prev, [key]: '' }));
+    }
+  };
+
+  const handleSaveKey = async (key: string) => {
+    const value = (keyInputs[key] || '').trim();
+    if (!value || value.length < 10) {
+      setMessage({ type: 'error', text: 'Key too short — paste the full key.' });
+      setTimeout(() => setMessage(null), 3000);
+      return;
+    }
+    setSavingKey(key);
+    try {
+      const res = await fetchWithAuth('/api/settings/api-keys', {
+        method: 'POST',
+        body: JSON.stringify({ key, value }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setKeyStatus(prev => ({ ...prev, [key]: true }));
+      setOpenProvider(null);
+      setMessage({ type: 'success', text: `${key.replace('_API_KEY', '')} key saved and active!` });
+      setTimeout(() => setMessage(null), 3000);
+    } catch {
+      setMessage({ type: 'error', text: 'Could not save key. Try again.' });
+      setTimeout(() => setMessage(null), 3000);
+    } finally {
+      setSavingKey(null);
+    }
+  };
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
@@ -148,8 +188,8 @@ export const Settings: React.FC = () => {
         <div className="px-6 py-4" style={{ background: '#1e1a16', borderBottom: '1px solid #2a2218' }}>
           <h2 className="font-serif text-lg font-semibold" style={{ color: '#ede6d6' }}>AI Providers</h2>
           <p className="text-xs mt-0.5" style={{ color: '#8a7a68' }}>
-            Keys live in your server's <code className="text-xs px-1 rounded" style={{ background: '#0d0b08', color: '#c9a84c' }}>.env</code> file.
-            {configuredProviders.length > 0 && ` ${configuredProviders.length} configured.`}
+            Paste your key and hit Save — takes effect instantly, no restart needed.
+            {configuredProviders.length > 0 && ` ${configuredProviders.length} active.`}
           </p>
         </div>
         {loading ? (
@@ -160,41 +200,78 @@ export const Settings: React.FC = () => {
           <div style={{ background: '#161210' }}>
             {providers.map(({ key, label, models, url }, i) => {
               const configured = keyStatus[key] ?? false;
+              const isOpen = openProvider === key;
+              const isSaving = savingKey === key;
               return (
-                <div key={key} className="flex items-center justify-between px-6 py-4"
-                  style={{ borderBottom: i < providers.length - 1 ? '1px solid #2a2218' : 'none' }}>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium" style={{ color: '#ede6d6' }}>{label}</span>
-                      {configured
-                        ? <span className="text-xs flex items-center gap-1" style={{ color: '#34d399' }}>✓ Active</span>
-                        : <span className="text-xs" style={{ color: '#4a3f35' }}>Not configured</span>
-                      }
+                <div key={key} style={{ borderBottom: i < providers.length - 1 ? '1px solid #2a2218' : 'none' }}>
+                  {/* Provider row */}
+                  <div className="flex items-center justify-between px-6 py-4">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium" style={{ color: '#ede6d6' }}>{label}</span>
+                        {configured
+                          ? <span className="text-xs flex items-center gap-1" style={{ color: '#34d399' }}>✓ Active</span>
+                          : <span className="text-xs" style={{ color: '#4a3f35' }}>Not configured</span>
+                        }
+                      </div>
+                      <p className="text-xs mt-0.5" style={{ color: '#4a3f35' }}>{models}</p>
                     </div>
-                    <p className="text-xs mt-0.5" style={{ color: '#4a3f35' }}>{models}</p>
+                    <div className="flex items-center gap-2">
+                      <a href={url} target="_blank" rel="noopener noreferrer"
+                        className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                        style={{ color: '#8a7a68', border: '1px solid #2a2218', background: 'transparent' }}>
+                        Get key
+                      </a>
+                      <button
+                        onClick={() => handleToggleProvider(key)}
+                        className="text-xs px-3 py-1.5 rounded-lg transition-colors"
+                        style={{
+                          color: isOpen ? '#8a7a68' : '#c9a84c',
+                          border: `1px solid ${isOpen ? '#2a2218' : 'rgba(201,168,76,0.3)'}`,
+                          background: isOpen ? 'transparent' : 'rgba(201,168,76,0.07)',
+                        }}>
+                        {isOpen ? 'Cancel' : configured ? 'Update' : 'Add key'}
+                      </button>
+                    </div>
                   </div>
-                  <a href={url} target="_blank" rel="noopener noreferrer"
-                    className="text-xs px-3 py-1.5 rounded-lg transition-colors"
-                    style={{ color: '#c9a84c', border: '1px solid rgba(201,168,76,0.2)', background: 'rgba(201,168,76,0.05)' }}>
-                    Get key →
-                  </a>
+
+                  {/* Inline key input */}
+                  {isOpen && (
+                    <div className="px-6 pb-4 flex gap-2">
+                      <input
+                        autoFocus
+                        type="password"
+                        placeholder={`Paste your ${label} API key…`}
+                        value={keyInputs[key] || ''}
+                        onChange={e => setKeyInputs(prev => ({ ...prev, [key]: e.target.value }))}
+                        onKeyDown={e => { if (e.key === 'Enter') handleSaveKey(key); if (e.key === 'Escape') setOpenProvider(null); }}
+                        className="flex-1 px-3 py-2 rounded-lg text-sm font-mono"
+                        style={{
+                          background: '#0d0b08',
+                          border: '1px solid #3a2f22',
+                          color: '#c9a84c',
+                          outline: 'none',
+                        }}
+                      />
+                      <button
+                        onClick={() => handleSaveKey(key)}
+                        disabled={isSaving || !keyInputs[key]?.trim()}
+                        className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                        style={{
+                          background: 'rgba(201,168,76,0.15)',
+                          border: '1px solid rgba(201,168,76,0.4)',
+                          color: '#c9a84c',
+                          opacity: isSaving || !keyInputs[key]?.trim() ? 0.5 : 1,
+                        }}>
+                        {isSaving ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
         )}
-      </div>
-
-      {/* How to add keys */}
-      <div className="rounded-2xl p-6" style={{ background: '#161210', border: '1px solid #2a2218' }}>
-        <h3 className="font-serif text-base font-semibold mb-3" style={{ color: '#ede6d6' }}>
-          How to add API keys
-        </h3>
-        <ol className="text-sm space-y-2" style={{ color: '#8a7a68' }}>
-          <li>1. Open <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#0d0b08', color: '#c9a84c' }}>~/.wholesaling-system/StoryChain/.env</code> on your server</li>
-          <li>2. Add the key, e.g. <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#0d0b08', color: '#c9a84c' }}>GROQ_API_KEY=gsk_...</code></li>
-          <li>3. Restart the server: <code className="px-1.5 py-0.5 rounded text-xs" style={{ background: '#0d0b08', color: '#c9a84c' }}>sudo systemctl restart storychain</code></li>
-        </ol>
       </div>
     </div>
   );

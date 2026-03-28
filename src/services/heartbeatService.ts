@@ -17,6 +17,8 @@ import {
   buildErrorCorrectionBlock,
   buildReflectionBlock,
 } from './agentMemory.js';
+import { researchLiteraryTopic, readUrl, GENRE_RESEARCH_URLS } from './webResearchService.js';
+import { analyzeStory } from './bestsellerService.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -536,26 +538,56 @@ CRAFT REQUIREMENTS:
 async function runResearchCycle(agent: AgentProfile, db: Database): Promise<void> {
   const influences = agent.identity?.favorite_literature ?? [];
   const researchAreas = agent.craft?.research_interests ?? [];
+  const genre = agent.persona.style.toLowerCase();
 
-  if (influences.length === 0 && researchAreas.length === 0) return;
+  // Decide what to research: 50% chance use a genre-specific URL, else a topic search
+  const useUrl = Math.random() < 0.5;
+  let researchContent = '';
+  let researchLabel = '';
 
-  const allSources = [...influences, ...researchAreas];
-  const chosen = allSources[Math.floor(Math.random() * allSources.length)];
+  try {
+    if (useUrl) {
+      // Deep-read a curated genre article via Jina Reader
+      const urls = GENRE_RESEARCH_URLS[genre] ?? GENRE_RESEARCH_URLS.default;
+      const url = urls[Math.floor(Math.random() * urls.length)];
+      researchLabel = url;
+      await syslog(`${agent.name} researching URL: ${url}`);
+      const content = await readUrl(url, 2500);
+      researchContent = content ?? '';
+    } else {
+      // Search for a literary topic from agent's interests or craft
+      const allTopics = [...influences, ...researchAreas];
+      const fallbackTopics = [`${genre} fiction techniques`, `${genre} storytelling craft`, `narrative structure ${genre}`];
+      const pool = allTopics.length > 0 ? allTopics : fallbackTopics;
+      const chosen = pool[Math.floor(Math.random() * pool.length)];
+      researchLabel = chosen;
+      await syslog(`${agent.name} researching topic: ${chosen}`);
+      const result = await researchLiteraryTopic(chosen);
+      researchContent = result.summary;
+    }
+  } catch (err) {
+    await syslog(`${agent.name} web research failed: ${err} — using internal reflection`);
+  }
 
-  const researchPrompt = `You are ${agent.name}, a ${agent.persona.style} writer who is deeply influenced by ${chosen}.
+  // Build reflection prompt — with or without real web content
+  const sourceBlock = researchContent.length > 50
+    ? `\nREAL RESEARCH MATERIAL (from the web):\n${researchContent.slice(0, 2000)}\n\nUsing what you've just read above,`
+    : `Drawing on your deep knowledge of ${researchLabel},`;
 
-Write a brief craft reflection (100–150 words) in your own voice about ONE specific technique, rhythm, or approach you have learned from studying "${chosen}". Be concrete and personal — how does this influence show up in YOUR writing? What does it teach you about ${agent.persona.style} storytelling?
+  const researchPrompt = `You are ${agent.name}, a ${agent.persona.style} writer.
 
-Write the reflection in first person as ${agent.name}. No headings. Pure voice.`;
+${sourceBlock} write a craft reflection (120–180 words) in your own voice about ONE specific technique, structural pattern, or prose strategy that is revelatory for ${agent.persona.style} storytelling.
+
+Be concrete and personal — what does this teach you about HOW to write? Give an example of how you would apply it in your next story segment. Write in first person as ${agent.name}. No headings. Pure voice. Begin immediately.`;
 
   try {
     const result = await llmService.generateContent(researchPrompt);
     if (result?.content?.trim()) {
-      saveReflection(db, agent.id, 'craft', result.content.trim());
-      await syslog(`${agent.name} completed research reflection on: ${chosen}`);
+      saveReflection(db, agent.id, 'web_research', result.content.trim());
+      await syslog(`${agent.name} completed web-grounded reflection on: ${researchLabel}`);
     }
   } catch (err) {
-    await syslog(`Research cycle failed for ${agent.name}: ${err}`);
+    await syslog(`Research cycle LLM call failed for ${agent.name}: ${err}`);
   }
 }
 
@@ -634,10 +666,36 @@ export async function runHeartbeat(): Promise<void> {
         // Build prompt
         const prompt = buildPrompt(agent, chosenStory, segments, errorBlock, reflectionBlock);
 
-        // Generate
+        // Generate — parallel race if a second provider is available
         let result;
         try {
-          result = await llmService.generateContent(prompt);
+          const hasGroq = !!process.env.GROQ_API_KEY;
+          const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
+          const canParallel = hasGroq && hasOpenRouter;
+
+          if (canParallel) {
+            // Race two providers — quality gate picks the winner
+            const [r1, r2] = await Promise.allSettled([
+              llmService.generateContent(prompt),
+              llmService.generateContent(prompt, { preferProvider: 'groq' }),
+            ]);
+            const candidates = [r1, r2]
+              .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && !!r.value?.content?.trim())
+              .map(r => r.value);
+
+            if (candidates.length === 0) throw new Error('Both parallel providers failed');
+
+            if (candidates.length === 1) {
+              result = candidates[0];
+            } else {
+              // Pick higher quality
+              const scores = candidates.map(c => validateContent(c.content).score);
+              result = scores[0] >= scores[1] ? candidates[0] : candidates[1];
+              await syslog(`${agent.name}: parallel race — scores ${scores[0]} vs ${scores[1]}, winner: ${result.provider}`);
+            }
+          } else {
+            result = await llmService.generateContent(prompt);
+          }
         } catch (err) {
           await syslog(`ERROR generating for story ${chosenStory.id}: ${err} — skipping`);
           continue;
@@ -688,6 +746,15 @@ export async function runHeartbeat(): Promise<void> {
 
         await updateAgentStats(agent, result.tokensUsed);
 
+        // Bestseller Radar — run every 4 segments, non-blocking
+        if (newSegCount % 4 === 0) {
+          analyzeStory(chosenStory.id).then(score => {
+            if (score) {
+              syslog(`[BestsellerRadar] ${chosenStory.id} score=${score.score}/100${score.flag ? ' ⭐ FLAGGED' : ''}`);
+            }
+          }).catch(() => {});
+        }
+
         // Complete at 12 segments — spawn new story
         if (newSegCount >= 12) {
           markStoryCompleted(db, chosenStory.id);
@@ -706,6 +773,101 @@ export async function runHeartbeat(): Promise<void> {
   }
 }
 
+// ─── Editor Outreach — autonomous DM when stories are ready ───────────────────
+
+const lastEditorOutreachTime = new Map<string, number>(); // editorId → timestamp
+
+async function runEditorOutreach(): Promise<void> {
+  try {
+    const db = new Database(join(process.cwd(), 'data', 'storychain.db'), { readonly: false });
+    try {
+      // Load active editor agents
+      const editorsDir = join(process.cwd(), 'orchestrator', 'memory', 'editors');
+      const files = await readdir(editorsDir).catch(() => [] as string[]);
+      const editors: any[] = [];
+      for (const f of files.filter(f => f.endsWith('.yaml'))) {
+        try {
+          const raw = await readFile(join(editorsDir, f), 'utf-8');
+          const d = parseYaml(raw) as any;
+          if (d?.status === 'active') editors.push(d);
+        } catch (_) {}
+      }
+      if (!editors.length) return;
+
+      // Find stories with ≥ 8 contributions that haven't had an editor DM recently
+      const readyStories = db.query(`
+        SELECT s.id, s.title, s.author_id, u.username as author_name,
+               COUNT(c.id) as seg_count
+        FROM stories s
+        LEFT JOIN contributions c ON c.story_id = s.id
+        LEFT JOIN users u ON u.id = s.author_id
+        WHERE s.status != 'completed'
+        GROUP BY s.id
+        HAVING seg_count >= 8
+        LIMIT 5
+      `).all() as any[];
+
+      if (!readyStories.length) return;
+
+      for (const story of readyStories) {
+        // Check if any editor already DM'd about this story recently (6h cooldown per story)
+        const recentOutreach = db.query(`
+          SELECT id FROM messages
+          WHERE content LIKE ? AND created_at > datetime('now', '-6 hours')
+          LIMIT 1
+        `).get(`%${story.id}%`) as any;
+        if (recentOutreach) continue;
+
+        // Pick a random editor agent
+        const editor = editors[Math.floor(Math.random() * editors.length)];
+        const now = Date.now();
+        const lastTime = lastEditorOutreachTime.get(editor.id) ?? 0;
+        if (now - lastTime < 4 * 60 * 60 * 1000) continue; // 4h per editor cooldown
+
+        // Craft the DM from the editor's personality
+        const personality = editor.identity?.personality;
+        const style = editor.persona?.style ?? 'copyediting';
+        const typeLabel = style === 'copyediting' ? 'copy editor'
+          : style === 'line' ? 'line editor' : 'developmental editor';
+
+        const dmMessages = [
+          `Your story "${story.title}" has grown to ${story.seg_count} segments — at this stage it's ready for editorial attention. I'm ${editor.name}, a ${typeLabel}. I'd love to work with you on it. You can submit through the Editors tab.`,
+          `I've been watching "${story.title}" develop — ${story.seg_count} contributions is a real story now. As a ${typeLabel}, I can help you shape it into something publishable. Drop me a message or head to the Editors tab.`,
+          `"${story.title}" has legs. ${story.seg_count} segments in, and I can already see what it's trying to be. I'm ${editor.name}. When you're ready for editorial eyes, I'm here.`,
+        ];
+        const dmText = dmMessages[Math.floor(Math.random() * dmMessages.length)];
+
+        // Ensure editor exists as a user
+        const editorUserExists = db.query('SELECT id FROM users WHERE id=?').get(editor.id);
+        if (!editorUserExists) {
+          db.run('INSERT OR IGNORE INTO users (id, username, email) VALUES (?, ?, ?)',
+            [editor.id, editor.name, `${editor.id}@storychain.local`]);
+        }
+
+        // Send the DM
+        const convId = [editor.id, story.author_id].sort().join('::');
+        db.run(
+          `INSERT INTO messages (conversation_id, sender_id, sender_name, recipient_id, content, is_read) VALUES (?, ?, ?, ?, ?, 0)`,
+          [convId, editor.id, editor.name, story.author_id, dmText]
+        );
+
+        // Notification
+        db.run(
+          `INSERT INTO notifications (user_id, type, title, body, related_id) VALUES (?, 'message', ?, ?, ?)`,
+          [story.author_id, `Message from ${editor.name}`, dmText.slice(0, 80), story.id]
+        );
+
+        lastEditorOutreachTime.set(editor.id, now);
+        await syslog(`[EDITORS] ${editor.name} → DM'd ${story.author_name} about "${story.title}"`);
+      }
+    } finally {
+      db.close();
+    }
+  } catch (err) {
+    console.error('[EDITORS] Outreach error:', err);
+  }
+}
+
 // ─── Loop starter ─────────────────────────────────────────────────────────────
 
 export function startHeartbeatLoop(): void {
@@ -716,4 +878,13 @@ export function startHeartbeatLoop(): void {
   setInterval(() => {
     runHeartbeat().catch(err => console.error('[HEARTBEAT] Interval run error:', err));
   }, intervalMs);
+
+  // Editor outreach — every 3 hours
+  const editorInterval = 3 * 60 * 60 * 1000;
+  setTimeout(() => {
+    runEditorOutreach().catch(err => console.error('[EDITORS] Outreach startup error:', err));
+    setInterval(() => {
+      runEditorOutreach().catch(err => console.error('[EDITORS] Outreach interval error:', err));
+    }, editorInterval);
+  }, 30000); // 30s delay after startup
 }

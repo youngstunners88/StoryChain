@@ -219,10 +219,8 @@ const RegisterForeignAgentModal: React.FC<{
   const handleGenerateAvatar = () => {
     if (!form.name) return;
     setGeneratingAvatar(true);
-    const genre = form.genreLabel || 'literary fiction';
-    const seed = Math.floor(Math.random() * 9999);
-    const prompt = `AI writer bot avatar for "${form.name}", ${genre}, digital illustration, glowing circuits, ethereal energy, dark background, detailed, cinematic`;
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${seed}`;
+    const seed = encodeURIComponent(form.name.replace(/[^a-zA-Z0-9]/g, ''));
+    const url = `https://api.dicebear.com/9.x/lorelei/svg?seed=${seed}`;
     setAvatarUrl(url);
     setAvatarFile(null);
     setGeneratingAvatar(false);
@@ -367,7 +365,7 @@ const RegisterForeignAgentModal: React.FC<{
               {avatarFile && (
                 <p className="text-xs" style={{ color: '#4a3f35' }}>📎 {avatarFile.name} selected — will upload after registration</p>
               )}
-              {!avatarFile && <p className="text-xs mt-0.5" style={{ color: '#4a3f35' }}>Free via Pollinations.ai · Enter a name first</p>}
+              {!avatarFile && <p className="text-xs mt-0.5" style={{ color: '#4a3f35' }}>Free avatar · Enter a name first</p>}
             </div>
 
             {error && <p className="text-xs rounded-lg px-4 py-2.5" style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', color: '#dc2626' }}>{error}</p>}
@@ -465,7 +463,8 @@ const WriterProfile: React.FC<{
     const prompt = isAgent
       ? `digital portrait of an AI writing entity named "${writer.name}", ${genre}, glowing circuits, ethereal, cinematic dark background`
       : `artistic portrait of a writer named "${writer.name}", ${genre}, painterly, warm dramatic lighting, literary aesthetic`;
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=512&height=512&nologo=true&seed=${seed}`;
+    const nameSeed = encodeURIComponent((writer.name || '').replace(/[^a-zA-Z0-9]/g, ''));
+    const url = `https://api.dicebear.com/9.x/lorelei/svg?seed=${nameSeed}`;
     // Save the generated URL as avatar
     const saveRes = await fetch('/api/writers/me', {
       method: 'PUT',

@@ -66,6 +66,9 @@ export const config = {
 
   security: {
     sessionSecret: process.env.SESSION_SECRET || 'development_secret_change_in_production',
+    jwtSecret: process.env.JWT_SECRET || process.env.SESSION_SECRET || 'development_jwt_secret_change_in_production',
+    jwtAccessTtlMs: 15 * 60 * 1000,        // 15 minutes
+    jwtRefreshTtlMs: 7 * 24 * 60 * 60 * 1000, // 7 days
     forceHttps: process.env.FORCE_HTTPS === 'true',
   },
 };

@@ -1,0 +1,97 @@
+name: devops-cicd
+version: 1.0.0
+description: >
+  Production DevOps stack for StoryChain. Docker containerisation, GitHub Actions
+  CI/CD pipeline, zero-downtime deploys, health monitoring, Sentry error tracking,
+  and structured observability.
+
+triggers:
+  - "dockerize"
+  - "ci/cd pipeline"
+  - "zero downtime deploy"
+  - "monitoring"
+  - "sentry"
+  - "production hardening"
+
+capabilities:
+  - docker_containerisation
+  - github_actions_pipeline
+  - zero_downtime_deploys
+  - health_monitoring
+  - error_tracking
+  - structured_logging
+  - uptime_alerting
+
+implementation:
+  docker:
+    base_image: oven/bun:1.1-alpine
+    multi_stage: true
+      - stage builder: install deps + build Vite frontend
+      - stage runtime: copy dist + server only (no devDeps)
+    image_size_target: < 200MB
+    non_root_user: true
+
+  docker_compose:
+    services:
+      - storychain (app)
+      - nginx (reverse proxy + SSL termination)
+      - postgres (if migrated from SQLite)
+      - redis (cache)
+      - watchtower (auto-pull new images on push)
+
+  github_actions:
+    on: [push to main, PR to main]
+    jobs:
+      lint_typecheck:
+        - bun run typecheck
+        - bun run lint
+      test:
+        - bun test
+      build:
+        - npx vite build
+        - docker build -t storychain:$SHA .
+      deploy:
+        condition: push to main only
+        strategy: rolling (start new, health check, stop old)
+        steps:
+          1. SSH to GCP VM
+          2. docker pull storychain:latest
+          3. docker-compose up -d --no-deps storychain
+          4. wait for /api/health to return 200
+          5. docker system prune -f
+
+  nginx:
+    ssl: Let's Encrypt (certbot auto-renew)
+    gzip: true
+    upstream: localhost:3000
+    rate_limit: 100r/m per IP on /api/*
+    static_cache: /assets/* 1y immutable
+
+  observability:
+    error_tracking: Sentry (bun SDK)
+    structured_logs: JSON to stdout → GCP Cloud Logging
+    log_fields: [timestamp, level, requestId, userId, method, path, duration, statusCode]
+    uptime: UptimeRobot or Checkly → Slack alert on downtime
+    metrics: /api/metrics endpoint (Prometheus-compatible)
+
+  health_checks:
+    liveness:  GET /api/health → {"status":"healthy"}
+    readiness: GET /api/status → checks DB + LLM providers
+    startup:   wait 10s after container start before checking
+
+files_to_create:
+  - Dockerfile
+  - docker-compose.yml
+  - docker-compose.prod.yml
+  - nginx/storychain.conf
+  - .github/workflows/ci.yml
+  - .github/workflows/deploy.yml
+  - scripts/deploy.sh
+  - src/middleware/requestLogger.ts   # Structured JSON request logging
+  - src/middleware/errorTracker.ts    # Sentry integration
+
+env_vars_needed:
+  - SENTRY_DSN=https://xxx@sentry.io/xxx
+  - DEPLOY_HOST=104.198.196.174
+  - DEPLOY_USER=teacherchris37
+  - DOCKER_REGISTRY=ghcr.io/youngstunners88/storychain

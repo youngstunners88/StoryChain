@@ -6,13 +6,7 @@ import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { generateRequestId } from '../utils/errorHandler.js';
 
-function requireAuth(c: Context): { userId: string } | null {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  if (!token || token.length < 20) return null;
-  return { userId: 'user_' + token.slice(-16) };
-}
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 async function loadEditorAgents(): Promise<any[]> {
   const dir = join(process.cwd(), 'orchestrator', 'memory', 'editors');
@@ -38,14 +32,17 @@ async function ensureEditorAgentsInDb(db: any, agents: any[]): Promise<void> {
       db.run('INSERT OR IGNORE INTO users (id, username, email) VALUES (?, ?, ?)',
         [userId, agent.name, `${userId}@storychain.local`]);
     }
-    const ep = db.query('SELECT user_id FROM editor_profiles WHERE user_id=?').get(userId);
+    const ep = db.query('SELECT user_id, avatar_url FROM editor_profiles WHERE user_id=?').get(userId) as any;
     const specs = JSON.stringify(agent.identity?.specialties ?? []);
+    const yamlAvatar = agent.identity?.avatar_url ?? null;
     if (ep) {
-      db.run(`UPDATE editor_profiles SET display_name=?, about=?, specialties=?, avatar_color=?, avatar_emoji=?, is_agent=1, editor_type='agent', genre_focus=?, updated_at=CURRENT_TIMESTAMP WHERE user_id=?`,
-        [agent.name, agent.identity?.about ?? null, specs, agent.identity?.avatar_color ?? '#60a5fa', agent.identity?.avatar_emoji ?? '✒️', agent.identity?.genre_focus ?? null, userId]);
+      // Only use YAML avatar if explicitly set — never overwrite a generated portrait
+      const avatarToUse = yamlAvatar || ep.avatar_url;
+      db.run(`UPDATE editor_profiles SET display_name=?, about=?, specialties=?, avatar_color=?, avatar_emoji=?, avatar_url=?, is_agent=1, editor_type='agent', genre_focus=?, updated_at=CURRENT_TIMESTAMP WHERE user_id=?`,
+        [agent.name, agent.identity?.about ?? null, specs, agent.identity?.avatar_color ?? '#60a5fa', agent.identity?.avatar_emoji ?? '✒️', avatarToUse, agent.identity?.genre_focus ?? null, userId]);
     } else {
-      db.run(`INSERT INTO editor_profiles (user_id, display_name, about, specialties, avatar_color, avatar_emoji, is_agent, editor_type, genre_focus) VALUES (?, ?, ?, ?, ?, ?, 1, 'agent', ?)`,
-        [userId, agent.name, agent.identity?.about ?? null, specs, agent.identity?.avatar_color ?? '#60a5fa', agent.identity?.avatar_emoji ?? '✒️', agent.identity?.genre_focus ?? null]);
+      db.run(`INSERT INTO editor_profiles (user_id, display_name, about, specialties, avatar_color, avatar_emoji, avatar_url, is_agent, editor_type, genre_focus) VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'agent', ?)`,
+        [userId, agent.name, agent.identity?.about ?? null, specs, agent.identity?.avatar_color ?? '#60a5fa', agent.identity?.avatar_emoji ?? '✒️', yamlAvatar, agent.identity?.genre_focus ?? null]);
     }
   }
 }
@@ -101,7 +98,7 @@ export async function getEditor(c: Context) {
 
 // POST /api/editors/me/ensure
 export async function ensureMyEditorProfile(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();
@@ -119,7 +116,7 @@ export async function ensureMyEditorProfile(c: Context) {
 
 // PUT /api/editors/me
 export async function updateEditorProfile(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
@@ -138,7 +135,7 @@ export async function updateEditorProfile(c: Context) {
 
 // POST /api/editorial/submit
 export async function submitForEditing(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
@@ -173,7 +170,7 @@ export async function submitForEditing(c: Context) {
 
 // GET /api/editorial/submissions — editor's queue
 export async function getEditorialQueue(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();
@@ -198,7 +195,7 @@ export async function getEditorialQueue(c: Context) {
 
 // GET /api/editorial/my-submissions — writer's own submissions
 export async function getMySubmissions(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();
@@ -216,7 +213,7 @@ export async function getMySubmissions(c: Context) {
 
 // PATCH /api/editorial/submissions/:id — editor updates status/notes
 export async function updateSubmission(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   const subId = c.req.param('id');
   try {

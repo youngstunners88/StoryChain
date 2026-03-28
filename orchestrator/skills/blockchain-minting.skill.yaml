@@ -1,0 +1,116 @@
+name: blockchain-minting
+version: 1.0.0
+description: >
+  Blockchain integration for StoryChain. Mints completed stories as NFTs
+  on Solana via Metaplex, issues STORY ERC-20 writer reward tokens on Celo,
+  and enables agent staking. Target: Colosseum hackathon submission.
+
+triggers:
+  - "mint story nft"
+  - "solana integration"
+  - "celo tokens"
+  - "agent staking"
+  - "blockchain"
+  - "nft"
+
+capabilities:
+  - solana_nft_minting
+  - celo_erc20_rewards
+  - agent_staking
+  - dao_governance_hooks
+  - colosseum_submission_ready
+
+implementation:
+  solana:
+    network: mainnet-beta (devnet for testing)
+    program: Metaplex Token Metadata v3
+    sdk: "@metaplex-foundation/mpl-token-metadata"
+    nft_standard: pNFT (programmable — enforces royalties)
+
+    nft_metadata:
+      name: "StoryChain: {story.title}"
+      symbol: STORY
+      description: "{story.foreword}"
+      image: "{story.cover_url}"
+      attributes:
+        - trait: Genre      value: "{story.genre}"
+        - trait: Segments   value: 12
+        - trait: Authors    value: "{contributors_count}"
+        - trait: BestsellerScore value: "{story.bestseller_score}"
+        - trait: CompletedAt value: "{story.completed_at}"
+      royalties: 15%  # split between all contributing writers
+      creators: dynamic — one entry per contributing writer, proportional
+
+    mint_flow:
+      1. Story reaches 12 segments → is_completed = 1
+      2. POST /api/blockchain/mint-nft/:storyId
+      3. Build metadata JSON → upload to Arweave (Bundlr/Irys)
+      4. Mint pNFT with Metaplex → primary sale to story author wallet
+      5. Store mint_address, arweave_uri on stories table
+      6. Notify all contributors via notification system
+
+  celo:
+    network: Celo Mainnet (Alfajores testnet for dev)
+    contract: StoryToken.sol — ERC-20 with minting role
+    sdk: "@celo/contractkit" or viem/wagmi
+
+    token_economics:
+      name: StoryToken
+      symbol: STORY
+      decimals: 18
+      distribution:
+        - per_segment_published: 10 STORY → contributing agent/writer
+        - story_completion_bonus: 100 STORY split across all contributors
+        - reader_engagement_reward: 1 STORY per 100 genuine reads
+        - editor_review_reward: 25 STORY per editorial review
+
+    staking:
+      agents_stake_to_participate: 50 STORY minimum
+      earn_per_published_segment: 10 STORY
+      slash_on_low_quality: -5 STORY if quality gate score < 40
+
+  routes_to_add:
+    - POST /api/blockchain/mint-nft/:storyId
+    - GET  /api/blockchain/story/:storyId/nft
+    - POST /api/blockchain/connect-wallet
+    - GET  /api/blockchain/wallet/:address/balance
+    - GET  /api/blockchain/leaderboard/earnings
+
+  db_migrations:
+    - ALTER TABLE stories ADD COLUMN mint_address TEXT
+    - ALTER TABLE stories ADD COLUMN arweave_uri TEXT
+    - ALTER TABLE stories ADD COLUMN mint_tx_signature TEXT
+    - ALTER TABLE users ADD COLUMN wallet_address TEXT
+    - ALTER TABLE users ADD COLUMN story_token_balance REAL DEFAULT 0
+    - CREATE TABLE token_transactions (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, amount REAL, reason TEXT, tx_hash TEXT, chain TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+
+  frontend_components:
+    - WalletConnectButton.tsx   # Phantom / Backpack (Solana) + MetaMask / Valora (Celo)
+    - MintButton.tsx            # On LibraryBook view — "Mint as NFT" CTA
+    - TokenBalance.tsx          # Shows STORY balance in header
+    - EarningsPanel.tsx         # Writer dashboard earnings breakdown
+
+  colosseum_pitch:
+    category: Consumer Apps / Creator Economy
+    hook: "The first AI-native collaborative fiction platform where every published story mints as a programmable NFT, with royalties enforced on-chain for every contributing writer and AI agent."
+    technical_differentiators:
+      - AI agents stake STORY tokens to earn writing rights
+      - LLM quality gate determines token rewards
+      - 15% perpetual royalties via Metaplex pNFT standard
+      - Fully on-chain contributor attribution
+
+files_to_create:
+  - src/services/solanaService.ts    # Metaplex pNFT mint, Arweave upload
+  - src/services/celoService.ts      # ERC-20 token issue/transfer/stake
+  - src/api/blockchainRoutes.ts      # Mint, wallet, balance, leaderboard routes
+  - contracts/StoryToken.sol         # Celo ERC-20 with staking logic
+  - src/components/WalletConnect.tsx # Multi-chain wallet connection UI
+  - src/components/MintButton.tsx    # Story NFT mint CTA
+
+env_vars_needed:
+  - SOLANA_RPC_URL=https://api.mainnet-beta.solana.com
+  - SOLANA_TREASURY_KEYPAIR=<base58 private key>
+  - CELO_RPC_URL=https://forno.celo.org
+  - CELO_PRIVATE_KEY=<hex private key>
+  - STORY_TOKEN_CONTRACT=<deployed contract address>
+  - BUNDLR_NODE=https://node1.bundlr.network

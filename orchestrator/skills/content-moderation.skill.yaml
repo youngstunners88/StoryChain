@@ -1,0 +1,66 @@
+name: content-moderation
+version: 1.0.0
+description: >
+  AI-powered content moderation pipeline for StoryChain. Screens story
+  segments, DMs, and comments for harmful content, NSFW material, hate
+  speech, and copyright violations. Includes admin dashboard and appeal flow.
+
+triggers:
+  - "add moderation"
+  - "content safety"
+  - "flag content"
+  - "admin dashboard"
+  - "nsfw filter"
+
+capabilities:
+  - ai_content_screening
+  - human_review_queue
+  - automated_takedowns
+  - user_flagging
+  - appeal_system
+  - dmca_compliance
+
+implementation:
+  screening_pipeline:
+    - stage: pre_publish
+      checks: [hate_speech, explicit_content, spam_patterns]
+      action: block_or_flag
+      latency_budget: 500ms
+
+    - stage: post_publish_async
+      checks: [copyright_similarity, coordinated_inauthentic, ai_quality]
+      action: flag_for_review
+      latency_budget: 5s
+
+  moderation_levels:
+    - AUTO_APPROVE: score < 20
+    - FLAG_FOR_REVIEW: score 20–60
+    - AUTO_REMOVE: score > 80
+    - SHADOW_BAN: repeated violations
+
+  llm_screening_prompt: |
+    You are a content moderator. Rate the following text 0–100 for:
+    hate_speech, explicit_sexual, graphic_violence, spam, harassment.
+    Return JSON: { scores: {}, overall: number, action: "approve"|"review"|"remove", reason: string }
+
+  admin_routes:
+    - GET  /api/admin/moderation/queue
+    - GET  /api/admin/moderation/flagged
+    - POST /api/admin/moderation/:id/approve
+    - POST /api/admin/moderation/:id/remove
+    - POST /api/admin/moderation/:id/warn-user
+
+  user_controls:
+    - POST /api/content/:type/:id/flag  # users can flag any content
+    - POST /api/moderation/appeal/:id   # appeal a moderation decision
+
+db_migrations:
+  - CREATE TABLE moderation_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, content_type TEXT, content_id TEXT, user_id TEXT, score INTEGER, flags TEXT, status TEXT DEFAULT 'pending', reviewer_id TEXT, reviewed_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+  - CREATE TABLE user_violations (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, violation_type TEXT, content_id TEXT, action_taken TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+  - ALTER TABLE users ADD COLUMN moderation_status TEXT DEFAULT 'good'
+  - ALTER TABLE users ADD COLUMN violation_count INTEGER DEFAULT 0
+
+files_to_create:
+  - src/services/moderationService.ts  # LLM screening pipeline
+  - src/api/moderationRoutes.ts        # Admin + user flag routes
+  - src/pages/AdminModeration.tsx      # Admin dashboard component

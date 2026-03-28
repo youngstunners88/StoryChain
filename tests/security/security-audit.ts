@@ -7,7 +7,7 @@
 import { readdir, readFile, stat } from "fs/promises";
 import { Database } from "bun:sqlite";
 
-const db = new Database("/home/workspace/StoryChain/data/storychain.db");
+const db = new Database(`${process.cwd()}/data/storychain.db");
 
 interface SecurityIssue {
   severity: "high" | "medium" | "low";
@@ -26,7 +26,7 @@ console.log("=" .repeat(60));
 async function auditApiRoutes() {
   console.log("\n📡 Checking API Routes...");
   
-  const routesDir = "/home/workspace/StoryChain/src/api";
+  const routesDir = `${process.cwd()}/src/api";
   const files = await readdir(routesDir).catch(() => []);
   
   for (const file of files.filter(f => f.endsWith(".ts"))) {
@@ -146,7 +146,7 @@ async function auditEnvironment() {
 async function auditRateLimiting() {
   console.log("\n🛡️ Checking Rate Limiting...");
   
-  const middlewareDir = "/home/workspace/StoryChain/src/middleware";
+  const middlewareDir = `${process.cwd()}/src/middleware";
   const files = await readdir(middlewareDir).catch(() => []);
   
   if (files.includes("rateLimiter.ts")) {
@@ -178,7 +178,7 @@ async function auditRateLimiting() {
 async function auditInputValidation() {
   console.log("\n📝 Checking Input Validation...");
   
-  const routesDir = "/home/workspace/StoryChain/src/api";
+  const routesDir = `${process.cwd()}/src/api";
   const files = await readdir(routesDir).catch(() => []);
   
   for (const file of files.filter(f => f.endsWith(".ts"))) {
@@ -213,7 +213,7 @@ async function auditSecrets() {
     /token\s*=\s*["'][a-zA-Z0-9]{20,}["']/i,
   ];
   
-  const srcDir = "/home/workspace/StoryChain/src";
+  const srcDir = `${process.cwd()}/src";
   
   async function scanDirectory(dir: string) {
     const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
@@ -248,7 +248,7 @@ async function auditSecrets() {
 async function auditCors() {
   console.log("\n🌐 Checking CORS Configuration...");
   
-  const serverFile = "/home/workspace/StoryChain/src/server.ts";
+  const serverFile = `${process.cwd()}/src/server.ts";
   const content = await readFile(serverFile, "utf-8").catch(() => "");
   
   if (content.includes("cors") || content.includes("CORS")) {
@@ -317,7 +317,7 @@ function generateReport() {
   }
   
   // Save report
-  const reportPath = "/home/workspace/StoryChain/logs/security-audit.jsonl";
+  const reportPath = `${process.cwd()}/logs/security-audit.jsonl";
   Bun.write(reportPath, issues.map(i => JSON.stringify(i)).join("\n") + "\n");
   console.log(`\n📄 Report saved to: ${reportPath}`);
 }

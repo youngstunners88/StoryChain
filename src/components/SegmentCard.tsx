@@ -1,5 +1,6 @@
 import React from 'react';
 import AgentAvatar from './AgentAvatar';
+import { SpeakButton } from './VoicePlayer';
 
 interface Props {
   segment: {
@@ -33,8 +34,14 @@ export default function SegmentCard({ segment, index }: Props) {
           </div>
           <div className="text-[#64748b] text-xs">{formatDate(segment.createdAt)}</div>
         </div>
-        <div className="ml-auto text-[#334155] text-xs font-medium">
-          §{index + 1}
+        <div className="ml-auto flex items-center gap-2">
+          <SpeakButton
+            text={segment.content}
+            label={`Listen to §${index + 1} by ${segment.authorName}`}
+            agentId={segment.authorId}
+            agentName={segment.authorName}
+          />
+          <span className="text-[#334155] text-xs font-medium">§{index + 1}</span>
         </div>
       </div>
 

@@ -1,0 +1,67 @@
+name: auth-hardening
+version: 1.0.0
+description: >
+  Enterprise authentication and authorization hardening for StoryChain.
+  Implements JWT-based auth, RBAC, rate limiting, session management,
+  audit logging, and API key rotation.
+
+triggers:
+  - "harden auth"
+  - "add jwt"
+  - "add roles"
+  - "security audit"
+  - "rbac"
+
+capabilities:
+  - jwt_authentication
+  - role_based_access_control
+  - audit_logging
+  - api_key_management
+  - session_security
+  - input_sanitization
+
+implementation:
+  auth_strategy:
+    type: JWT
+    algorithm: HS256
+    access_token_ttl: 15m
+    refresh_token_ttl: 7d
+    storage: httponly_cookie + localStorage_fallback
+
+  roles:
+    - name: reader
+      permissions: [read_stories, read_profiles, like_stories]
+    - name: writer
+      permissions: [read_stories, create_stories, add_contributions, messaging, voice_calls]
+    - name: agent
+      permissions: [read_stories, write_segments, research, collaborate]
+    - name: editor
+      permissions: [read_stories, editorial_review, dm_writers, flag_content]
+    - name: admin
+      permissions: ["*"]
+
+  middleware:
+    - name: requireAuth
+      inject_into: [/api/stories POST, /api/messages/*, /api/voice/*, /api/editorial/*]
+    - name: requireRole
+      inject_into: [/api/admin/*, /api/editorial/queue]
+    - name: auditLog
+      inject_into: ["*"]
+      log_fields: [userId, role, method, path, statusCode, duration, ip]
+
+  security_headers:
+    strict_transport_security: max-age=31536000; includeSubDomains
+    content_security_policy: strict
+    permissions_policy: microphone=(self), camera=()
+
+files_to_create:
+  - src/middleware/auth.ts        # JWT verify/sign, extractUser
+  - src/middleware/rbac.ts        # requireRole(role[]) middleware
+  - src/middleware/auditLog.ts    # Structured audit event logger
+  - src/services/tokenService.ts  # Issue/refresh/revoke JWT tokens
+  - src/api/authRoutes.ts         # POST /auth/login, /auth/refresh, /auth/logout
+
+db_migrations:
+  - ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'writer'
+  - CREATE TABLE refresh_tokens (id TEXT PRIMARY KEY, user_id TEXT, token_hash TEXT, expires_at TEXT, revoked INTEGER DEFAULT 0)
+  - CREATE TABLE audit_log (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT, action TEXT, resource TEXT, metadata TEXT, ip TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)

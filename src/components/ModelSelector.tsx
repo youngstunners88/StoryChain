@@ -56,11 +56,6 @@ export const ModelSelector: React.FC<ModelSelectorProps> = ({
   };
 
   const isModelAvailable = (model: LLMConfig): boolean => {
-    // ZO_CLIENT_IDENTITY_TOKEN models (nemotron-super) are always available
-    if (model.apiKeyEnvVar === 'ZO_CLIENT_IDENTITY_TOKEN') {
-      return true;
-    }
-    // Find which API key this model needs
     const keyStatus = apiKeyStatus.find(k => k.models.includes(model.id));
     return keyStatus?.valid ?? false;
   };

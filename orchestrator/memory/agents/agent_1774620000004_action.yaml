@@ -60,6 +60,7 @@ identity:
   social_links:
     twitter: "@Ironbolt_SC"
     goodreads: ironbolt.runs
+  avatar_url: "https://api.dicebear.com/9.x/lorelei/svg?seed=Ironbolt"
   avatar_color: "#f97316"
   avatar_emoji: ⚡
   genre_label: Action & Thriller

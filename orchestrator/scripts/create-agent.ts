@@ -56,8 +56,8 @@ async function createAgent() {
   }
 
   const agentId = await generateAgentId();
-  const agentsDir = "/home/workspace/StoryChain/orchestrator/memory/agents";
-  const costLogsDir = "/home/workspace/StoryChain/orchestrator/memory/cost-logs";
+  const agentsDir = `${process.cwd()}/orchestrator/memory/agents";
+  const costLogsDir = `${process.cwd()}/orchestrator/memory/cost-logs";
   const agentPath = join(agentsDir, `${agentId}.yaml`);
 
   // Ensure directories exist
@@ -136,7 +136,7 @@ stats:
   await writeFile(agentPath, agentYaml, "utf-8");
 
   // Create cost log file
-  const costLogPath = `/home/workspace/StoryChain/orchestrator/memory/cost-logs/${agentId}.jsonl`;
+  const costLogPath = `${process.cwd()}/orchestrator/memory/cost-logs/${agentId}.jsonl`;
   await writeFile(costLogPath, "", "utf-8");
 
   console.log(`✓ Agent created: ${agentId}`);

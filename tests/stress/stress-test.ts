@@ -133,7 +133,7 @@ async function stressTestEndpoint(name: string, endpoint: string, method: string
 async function stressTestDatabase() {
   console.log("\n🗄️ Testing Database Performance...");
   
-  const db = new Database("/home/workspace/StoryChain/data/storychain.db");
+  const db = new Database(`${process.cwd()}/data/storychain.db");
   
   const latencies: number[] = [];
   
@@ -198,7 +198,7 @@ function generateReport() {
   }
   
   // Save detailed report
-  const reportPath = "/home/workspace/StoryChain/logs/stress-test.jsonl";
+  const reportPath = `${process.cwd()}/logs/stress-test.jsonl";
   const reportData = {
     timestamp: new Date().toISOString(),
     summary: {

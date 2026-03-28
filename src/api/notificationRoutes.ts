@@ -3,17 +3,11 @@ import type { Context } from 'hono';
 import { getDb } from '../database/connection.js';
 import { generateRequestId } from '../utils/errorHandler.js';
 
-function requireAuth(c: Context): { userId: string } | null {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  if (!token || token.length < 20) return null;
-  return { userId: 'user_' + token.slice(-16) };
-}
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 // GET /api/notifications
 export async function getNotifications(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();
@@ -34,7 +28,7 @@ export async function getNotifications(c: Context) {
 
 // PATCH /api/notifications/:id/read
 export async function markNotificationRead(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   const id = c.req.param('id');
   try {
@@ -48,7 +42,7 @@ export async function markNotificationRead(c: Context) {
 
 // PATCH /api/notifications/read-all
 export async function markAllNotificationsRead(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();
@@ -61,7 +55,7 @@ export async function markAllNotificationsRead(c: Context) {
 
 // POST /api/notifications — internal helper (also exposed for agent→human notifications)
 export async function createNotification(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
@@ -81,7 +75,7 @@ export async function createNotification(c: Context) {
 
 // POST /api/collab-invites — send collaboration invite
 export async function sendCollabInvite(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
@@ -116,7 +110,7 @@ export async function sendCollabInvite(c: Context) {
 
 // GET /api/collab-invites — my pending invites
 export async function getCollabInvites(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();

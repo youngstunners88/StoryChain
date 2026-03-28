@@ -22,7 +22,7 @@ const { values } = parseArgs({
   allowPositionals: true,
 });
 
-const SWARM_ROOT = "/home/workspace/StoryChain/architect/agent-swarm";
+const SWARM_ROOT = `${process.cwd()}/architect/agent-swarm";
 const MEMORY_ROOT = `${SWARM_ROOT}/memory`;
 
 interface TaskMeta {

@@ -9,6 +9,7 @@ import { config, validateConfig } from './config/index.js';
 import { getDb, initializeDatabase, checkDatabaseHealth } from './database/connection.js';
 import { startHeartbeatLoop, lastHeartbeatTime } from './services/heartbeatService.js';
 import { llmService } from './services/llmService.js';
+import { generateAndSaveAvatar, buildAvatarPrompt, buildPollinationsUrl } from './services/imageGenService.js';
 
 import {
   getUserSettings,
@@ -85,6 +86,8 @@ import {
 } from './api/socialRoutes.js';
 
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
+import { auditLogMiddleware } from './middleware/auditLog.js';
+import { register as authRegister, login as authLogin, refreshToken, logout } from './api/authRoutes.js';
 
 const configValidation = validateConfig();
 if (!configValidation.valid) {
@@ -116,6 +119,7 @@ app.use(cors({
 }));
 
 app.use(logger());
+app.use('/api/*', auditLogMiddleware);
 
 app.get('/api/status', async (c) => {
   try {
@@ -162,6 +166,12 @@ app.get('/api/health', async (c) => {
   return c.json({ status: 'healthy', timestamp: new Date().toISOString(), database: 'connected', version: '2.0.0', environment: config.nodeEnv });
 });
 
+// Auth
+app.post('/auth/register', rateLimitMiddleware(rateLimiters.auth), authRegister);
+app.post('/auth/login', rateLimitMiddleware(rateLimiters.auth), authLogin);
+app.post('/auth/refresh', rateLimitMiddleware(rateLimiters.auth), refreshToken);
+app.post('/auth/logout', rateLimitMiddleware(rateLimiters.general), logout);
+
 // User settings
 app.get('/api/user/settings', rateLimitMiddleware(rateLimiters.general), getUserSettings);
 app.post('/api/user/settings', rateLimitMiddleware(rateLimiters.general), updateUserSettings);
@@ -177,6 +187,26 @@ app.get('/api/tokens/costs', rateLimitMiddleware(rateLimiters.general), getToken
 
 // Settings
 app.post('/api/settings/api-keys', rateLimitMiddleware(rateLimiters.auth), saveApiKey);
+
+// Voice — agent conversational reply
+app.post('/api/voice/agent-reply', rateLimitMiddleware(rateLimiters.general), async (c) => {
+  try {
+    const { agentId, agentName, userMessage, history } = await c.req.json();
+    const prompt = `You are ${agentName}, an AI literary agent on StoryChain — a collaborative storytelling platform.
+You are having a real-time voice conversation with a writer. Be warm, insightful, and in character.
+Keep your reply to 2-3 sentences maximum (it will be spoken aloud). No markdown, no lists, just natural speech.
+
+${history ? `Conversation so far:\n${history}\n\n` : ''}Writer says: "${userMessage}"
+
+${agentName} replies:`;
+
+    const result = await llmService.generateContent(prompt, { maxTokens: 150 });
+    const reply = result?.content?.trim() ?? 'That is a fascinating thought. Tell me more about that.';
+    return c.json({ reply });
+  } catch {
+    return c.json({ reply: 'I seem to be lost in thought. Could you say that again?' });
+  }
+});
 
 // Stories
 app.get('/api/stories', rateLimitMiddleware(rateLimiters.general), getStories);
@@ -258,10 +288,68 @@ app.notFound((c) => {
   return c.json({ error: 'Not found', code: 'NOT_FOUND', path: c.req.path }, 404);
 });
 
+// Generate Pollinations portraits for all agents/editors that have no real avatar
+async function generateMissingAvatars() {
+  try {
+    const db = await getDb();
+
+    // Include agents/editors with no avatar OR still using DiceBear placeholders
+    const missing = db.query(`
+      SELECT wp.user_id, wp.display_name, wp.genre, 1 as is_writer,
+             COALESCE(wp.genre, 'literary') as focus
+      FROM writer_profiles wp
+      WHERE wp.is_agent = 1
+        AND (wp.avatar_url IS NULL OR wp.avatar_url LIKE '%dicebear%')
+      UNION
+      SELECT ep.user_id, ep.display_name, ep.genre_focus, 0 as is_writer,
+             COALESCE(ep.genre_focus, 'literary') as focus
+      FROM editor_profiles ep
+      WHERE ep.is_agent = 1
+        AND (ep.avatar_url IS NULL OR ep.avatar_url LIKE '%dicebear%')
+    `).all() as any[];
+
+    if (missing.length === 0) {
+      console.log('[Avatars] All agent portraits already generated.');
+      return;
+    }
+
+    console.log(`[Avatars] Generating portraits for ${missing.length} agents/editors…`);
+
+    for (const row of missing) {
+      const genre = row.focus ?? 'literary';
+      const role = row.is_writer ? 'AI story writer' : 'literary editor';
+      const prompt = buildAvatarPrompt(row.display_name, role, genre);
+
+      // Try HuggingFace first (saves locally), then fall back to Pollinations (free, no key)
+      let url: string | null = null;
+      if (process.env.HUGGINGFACE_ACCESS_TOKEN) {
+        url = await generateAndSaveAvatar(prompt, `${row.user_id}.jpg`);
+      }
+      if (!url) {
+        // Pollinations.ai — free, no key, generates real AI portraits via Flux
+        const seed = row.user_id.split('').reduce((a: number, c: string) => a + c.charCodeAt(0), 0);
+        url = buildPollinationsUrl(prompt, seed);
+        console.log(`[Avatars] Using Pollinations for ${row.display_name}`);
+      }
+
+      db.run(`UPDATE writer_profiles SET avatar_url=? WHERE user_id=?`, [url, row.user_id]);
+      db.run(`UPDATE editor_profiles SET avatar_url=? WHERE user_id=?`, [url, row.user_id]);
+      console.log(`[Avatars] ✓ ${row.display_name} → portrait assigned`);
+      await new Promise(r => setTimeout(r, 500));
+    }
+
+    console.log('[Avatars] Portrait generation complete.');
+  } catch (err) {
+    console.error('[Avatars] Error generating avatars:', err);
+  }
+}
+
 async function startServer() {
   try {
     await initializeDatabase();
     startHeartbeatLoop();
+    // Fire avatar generation in background (non-blocking)
+    setTimeout(() => generateMissingAvatars(), 5000);
     const port = config.port;
     console.log(`
 ╔════════════════════════════════════════════════════════════╗

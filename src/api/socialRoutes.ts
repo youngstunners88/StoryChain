@@ -5,36 +5,12 @@ import type { Context } from 'hono';
 import { timingSafeEqual } from 'node:crypto';
 import { getDb } from '../database/connection.js';
 
-// Auth middleware
-async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) {
-    return c.json({ error: 'Unauthorized' }, 401);
-  }
-
-  const token = auth.slice(7);
-  
-  // Accept any token that's at least 20 characters
-  // This is more lenient while still requiring some form of auth
-  if (!token || token.length < 20) {
-    return c.json({ error: 'Invalid token format' }, 401);
-  }
-
-  // Derive user ID from token (last 16 chars for consistency)
-  const userId = 'user_' + token.slice(-16);
-  const email = 'user@storychain.local';
-
-  return { userId, email };
-}
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 // GET /api/stories - Feed with filters and pagination (PUBLIC - no auth required)
 export async function getStories(c: Context) {
   // Try to get auth, but don't require it
-  let auth: { userId: string; email: string } | null = null;
-  const authResult = await requireAuth(c);
-  if (!(authResult instanceof Response)) {
-    auth = authResult;
-  }
+  const auth = await requireAuth(c);
 
   try {
     const { sort = 'newest', filter = 'all', page = '1', limit = '12', q, model } = c.req.query();
@@ -258,6 +234,16 @@ export async function likeStory(c: Context) {
       userId = 'session_' + Math.random().toString(36).substr(2, 9);
     }
 
+    // Ensure user exists in users table (required by FK constraint)
+    const userExists = database.query('SELECT 1 FROM users WHERE id = ?').get(userId);
+    if (!userExists) {
+      const uniqueSuffix = userId.slice(-8);
+      database.run(
+        'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+        [userId, `guest_${uniqueSuffix}`, `${userId}@storychain.local`, 'nemotron-super']
+      );
+    }
+
     // Check if already liked
     const existingLike = database.query(
       'SELECT 1 FROM likes WHERE story_id = ? AND user_id = ?'
@@ -321,26 +307,30 @@ export async function addContribution(c: Context) {
       finalAuthorId = authorId;
       finalAuthorName = authorName || (authorId.startsWith('agent_') ? 'Agent' : 'Anonymous');
     } else {
-      // Generate anonymous user
-      finalAuthorId = 'anon_' + Math.random().toString(36).substr(2, 9);
-      finalAuthorName = 'Anonymous';
+      // Generate anonymous user with unique ID
+      const anonSuffix = Math.random().toString(36).substr(2, 9);
+      finalAuthorId = 'anon_' + anonSuffix;
+      finalAuthorName = authorName || 'Anonymous';
     }
 
     // Create/get user in database
-    let user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
+    const user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
     if (!user) {
+      // Always use ID-based unique username/email to avoid UNIQUE constraint violations
+      const uniqueSuffix = finalAuthorId.slice(-8);
+      const uniqueUsername = `${finalAuthorName}_${uniqueSuffix}`;
       database.run(
         'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
-        [finalAuthorId, finalAuthorName, `${finalAuthorId}@storychain.local`, 'kimi-k2.5']
+        [finalAuthorId, uniqueUsername, `${finalAuthorId}@storychain.local`, 'kimi-k2.5']
       );
     }
 
     // Create contribution
     const contributionId = `contrib_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     database.run(
-      `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-      [contributionId, storyId, finalAuthorId, content.trim(), 'kimi-k2.5', content.length]
+      `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, tokens_spent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [contributionId, storyId, finalAuthorId, content.trim(), 'manual', content.length, 0]
     );
 
     return c.json({
@@ -359,10 +349,91 @@ export async function addContribution(c: Context) {
   }
 }
 
+// GET /api/stories/:id/comments - Fetch comments for a story (PUBLIC)
+export async function getComments(c: Context) {
+  const storyId = c.req.param('id');
+  if (!storyId) return c.json({ error: 'Story ID required' }, 400);
+
+  try {
+    const database = await getDb();
+    const comments = database.query(`
+      SELECT id, story_id, author_id, author_name, content, created_at
+      FROM comments
+      WHERE story_id = ?
+      ORDER BY created_at ASC
+    `).all(storyId);
+
+    return c.json({ comments: comments.map((cm: any) => ({
+      id: cm.id,
+      storyId: cm.story_id,
+      authorId: cm.author_id,
+      authorName: cm.author_name,
+      content: cm.content,
+      createdAt: cm.created_at,
+    })) });
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    return c.json({ error: 'Failed to fetch comments' }, 500);
+  }
+}
+
+// POST /api/stories/:id/comments - Add a comment (PUBLIC)
+export async function addComment(c: Context) {
+  const storyId = c.req.param('id');
+  if (!storyId) return c.json({ error: 'Story ID required' }, 400);
+
+  try {
+    const body = await c.req.json();
+    const { content, authorName } = body;
+
+    if (!content?.trim()) return c.json({ error: 'Comment content is required' }, 400);
+    if (content.trim().length > 1000) return c.json({ error: 'Comment must be under 1000 characters' }, 400);
+
+    const database = await getDb();
+
+    const story = database.query('SELECT id FROM stories WHERE id = ?').get(storyId);
+    if (!story) return c.json({ error: 'Story not found' }, 404);
+
+    // Derive author from session or header
+    const sessionId = c.req.header('x-session-id') || `anon_${Math.random().toString(36).substr(2, 9)}`;
+    const displayName = authorName?.trim() || 'Anonymous';
+    const authorId = 'user_' + sessionId.slice(-16).padStart(16, '0');
+
+    const userExists = database.query('SELECT 1 FROM users WHERE id = ?').get(authorId);
+    if (!userExists) {
+      database.run(
+        'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+        [authorId, displayName, `${authorId}@storychain.local`, 'nemotron-super']
+      );
+    }
+
+    const commentId = `comment_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    database.run(
+      `INSERT INTO comments (id, story_id, author_id, author_name, content, created_at)
+       VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      [commentId, storyId, authorId, displayName, content.trim()]
+    );
+
+    return c.json({
+      comment: {
+        id: commentId,
+        storyId,
+        authorId,
+        authorName: displayName,
+        content: content.trim(),
+        createdAt: new Date().toISOString(),
+      },
+    }, 201);
+  } catch (error) {
+    console.error('Error adding comment:', error);
+    return c.json({ error: 'Failed to add comment' }, 500);
+  }
+}
+
 // GET /api/users/:id - Get user profile
 export async function getUser(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -418,7 +489,7 @@ export async function getUser(c: Context) {
 // GET /api/users/:id/stories - Get user's stories
 export async function getUserStories(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -460,7 +531,7 @@ export async function getUserStories(c: Context) {
 // GET /api/users/:id/contributions - Get user's contributions
 export async function getUserContributions(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -497,7 +568,7 @@ export async function getUserContributions(c: Context) {
 // GET /api/users/:id/liked - Get stories liked by user
 export async function getUserLikedStories(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -540,7 +611,7 @@ export async function getUserLikedStories(c: Context) {
 // POST /api/users/:id/follow - Follow/unfollow a user
 export async function followUser(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   const userId = c.req.param('id');
   if (!userId) {
@@ -587,11 +658,7 @@ export async function followUser(c: Context) {
 // GET /api/trending - Get trending stories (PUBLIC - no auth required)
 export async function getTrending(c: Context) {
   // Try to get auth, but don't require it
-  let auth: { userId: string; email: string } | null = null;
-  const authResult = await requireAuth(c);
-  if (!(authResult instanceof Response)) {
-    auth = authResult;
-  }
+  const auth = await requireAuth(c);
 
   try {
     const database = await getDb();

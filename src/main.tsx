@@ -1,17 +1,13 @@
-// StoryChain - Main Entry Point
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { App } from './App';
-
-// Import global styles if any
+import { HashRouter } from 'react-router-dom';
+import App from './App';
 import './styles/index.css';
 
-// Mount React app
-const rootElement = document.getElementById('root');
-if (rootElement) {
-  ReactDOM.createRoot(rootElement).render(
-    <React.StrictMode>
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <HashRouter>
       <App />
-    </React.StrictMode>
-  );
-}
+    </HashRouter>
+  </React.StrictMode>
+);

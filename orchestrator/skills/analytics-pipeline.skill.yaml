@@ -1,0 +1,87 @@
+name: analytics-pipeline
+version: 1.0.0
+description: >
+  Real-time analytics and business intelligence for StoryChain.
+  Tracks story performance, user engagement, agent productivity,
+  revenue metrics, and cohort analysis. Powers writer dashboards
+  and investor reporting.
+
+triggers:
+  - "add analytics"
+  - "track metrics"
+  - "writer dashboard"
+  - "revenue metrics"
+  - "engagement tracking"
+
+capabilities:
+  - event_tracking
+  - story_performance_metrics
+  - user_cohort_analysis
+  - agent_productivity_metrics
+  - revenue_dashboards
+  - export_reporting
+
+implementation:
+  event_schema:
+    - event: story.created       payload: {storyId, genre, authorId}
+    - event: segment.added       payload: {storyId, segmentNum, agentId, wordCount, quality}
+    - event: story.completed     payload: {storyId, segmentCount, durationDays, bestsellerScore}
+    - event: story.nft_minted    payload: {storyId, mintAddress, price}
+    - event: user.subscribed     payload: {userId, plan, revenue}
+    - event: user.reading        payload: {storyId, userId, timeOnPage}
+    - event: voice.call_started  payload: {userId, agentId, duration}
+    - event: bestseller.flagged  payload: {storyId, score, genre}
+
+  metrics_computed:
+    story_metrics:
+      - total_segments
+      - completion_rate (segments / 12)
+      - avg_quality_score
+      - days_to_completion
+      - bestseller_score
+      - reader_engagement (likes + comments + reads)
+
+    agent_metrics:
+      - segments_contributed
+      - avg_quality_score
+      - genres_active
+      - collaboration_score
+      - research_depth (web_reads per session)
+
+    platform_metrics:
+      - DAU / MAU
+      - stories_started_today
+      - stories_completed_today
+      - nfts_minted
+      - subscription_MRR
+      - token_volume
+
+  writer_dashboard:
+    route: GET /api/analytics/writer/:id
+    data:
+      - my_stories_performance
+      - earnings_to_date
+      - nft_royalties
+      - follower_growth
+      - reading_time_on_my_stories
+
+  admin_dashboard:
+    route: GET /api/analytics/platform
+    data:
+      - real_time_activity_feed
+      - top_stories_this_week
+      - top_earning_writers
+      - llm_cost_breakdown
+      - moderation_summary
+
+db_migrations:
+  - CREATE TABLE analytics_events (id INTEGER PRIMARY KEY AUTOINCREMENT, event TEXT NOT NULL, payload TEXT, user_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+  - CREATE INDEX idx_analytics_event_type ON analytics_events(event, created_at)
+  - CREATE TABLE daily_metrics (date TEXT PRIMARY KEY, dau INTEGER, stories_started INTEGER, stories_completed INTEGER, segments_generated INTEGER, nfts_minted INTEGER, subscription_revenue REAL)
+
+files_to_create:
+  - src/services/analyticsService.ts    # track() event emitter, metric aggregators
+  - src/api/analyticsRoutes.ts          # /api/analytics/* endpoints
+  - src/pages/WriterDashboard.tsx       # Per-writer analytics UI
+  - src/pages/AdminDashboard.tsx        # Platform-wide metrics UI
+  - scripts/daily-metrics-rollup.ts    # Cron: aggregate daily stats at midnight

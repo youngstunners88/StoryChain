@@ -71,7 +71,7 @@ async function parseAgentProfile(path: string): Promise<AgentStats | null> {
 }
 
 async function auditAgents() {
-  const agentsDir = "/home/workspace/StoryChain/orchestrator/memory/agents";
+  const agentsDir = `${process.cwd()}/orchestrator/memory/agents";
   const files = await readdir(agentsDir).catch(() => []);
   const agentFiles = files.filter(f => f.endsWith(".yaml"));
 

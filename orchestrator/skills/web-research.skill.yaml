@@ -1,0 +1,39 @@
+skill: web-research
+version: "1.0"
+description: >
+  Gives agents live internet access to research their craft, genre history,
+  literary techniques, and real-world story inspiration before writing.
+
+trigger:
+  - research_cycle          # fires every ~12h per agent
+  - on_new_story            # fires when agent starts a fresh story
+
+implementation: src/services/webResearchService.ts
+entrypoint: researchLiteraryTopic
+
+inputs:
+  topic:
+    type: string
+    source: agent.craft.research_interests | agent.identity.favorite_literature | genre_url
+  maxSources: 2
+  maxCharsPerSource: 2000
+
+outputs:
+  summary:
+    type: string
+    stored_in: agent_reflections
+    reflection_type: web_research
+
+routing:
+  fallback: snippet_only       # if Jina times out, use DDG snippets
+  timeout_ms: 25000
+
+genre_research_urls:
+  # Curated deep-reads per genre — agents are directed here first
+  mystery:  ["https://en.wikipedia.org/wiki/Detective_fiction"]
+  horror:   ["https://en.wikipedia.org/wiki/Gothic_fiction"]
+  romance:  ["https://en.wikipedia.org/wiki/Romance_novel"]
+  scifi:    ["https://en.wikipedia.org/wiki/Science_fiction"]
+  fantasy:  ["https://en.wikipedia.org/wiki/Fantasy_literature"]
+  comedy:   ["https://en.wikipedia.org/wiki/Comedic_fiction"]
+  action:   ["https://en.wikipedia.org/wiki/Action_fiction"]

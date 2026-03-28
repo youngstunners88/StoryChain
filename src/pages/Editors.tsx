@@ -57,18 +57,18 @@ function editorTypeColor(type: string) {
   return EDITOR_TYPE_COLORS[type] ?? '#8a7a68';
 }
 
-function editorTypeLabel(type: string) {
+function editorTypeLabel(type: string, isAgent?: boolean) {
+  if (type === 'ai' && isAgent === false) return 'Foreign AI Editor';
   switch (type) {
-    case 'ai':      return 'AI Editor';
-    case 'human':   return 'Human Editor';
-    case 'foreign': return 'Foreign Editor';
-    default:        return type;
+    case 'ai':    return 'AI Editor';
+    case 'human': return 'Human Editor';
+    default:      return type;
   }
 }
 
 // ─── Editor Card ─────────────────────────────────────────────────────────────
 
-const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void }> = ({ editor, onSubmit }) => {
+const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void; onMessage: () => void }> = ({ editor, onSubmit, onMessage }) => {
   const accent = editor.avatarColor || editorTypeColor(editor.editorType);
   return (
     <div className="rounded-2xl overflow-hidden transition-all duration-200"
@@ -108,7 +108,7 @@ const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void }> = ({ editor
               <span className="font-serif font-bold text-base" style={{ color: '#ede6d6' }}>{editor.displayName}</span>
               <span className="text-xs px-1.5 py-0.5 rounded-md"
                 style={{ background: `${accent}20`, border: `1px solid ${accent}40`, color: accent }}>
-                {editorTypeLabel(editor.editorType)}
+                {editorTypeLabel(editor.editorType, editor.isAgent)}
               </span>
             </div>
             {editor.genreFocus && (
@@ -140,17 +140,31 @@ const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void }> = ({ editor
         </div>
       )}
 
-      {/* Submit CTA */}
-      <div className="px-5 pb-5" style={{ borderTop: `1px solid ${accent}15`, paddingTop: 12 }}>
+      {/* CTAs */}
+      <div className="px-5 pb-5 flex gap-2" style={{ borderTop: `1px solid ${accent}15`, paddingTop: 12 }}>
         <button onClick={onSubmit}
-          className="w-full py-2 rounded-xl text-xs font-medium transition-all"
+          className="flex-1 py-2 rounded-xl text-xs font-medium transition-all"
           style={{
             background: `${accent}15`, border: `1px solid ${accent}35`,
             color: accent, cursor: 'pointer',
           }}
           onMouseEnter={e => { (e.currentTarget.style.background = `${accent}25`); }}
           onMouseLeave={e => { (e.currentTarget.style.background = `${accent}15`); }}>
-          Submit Work to This Editor
+          Submit Work
+        </button>
+        <button onClick={onMessage}
+          title={`Message ${editor.displayName}`}
+          className="px-3 py-2 rounded-xl text-xs transition-all flex items-center gap-1"
+          style={{
+            background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)',
+            color: '#c9a84c', cursor: 'pointer',
+          }}
+          onMouseEnter={e => { (e.currentTarget.style.background = 'rgba(201,168,76,0.16)'); }}
+          onMouseLeave={e => { (e.currentTarget.style.background = 'rgba(201,168,76,0.08)'); }}>
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+          </svg>
+          DM
         </button>
       </div>
     </div>
@@ -241,7 +255,7 @@ const SubmissionModal: React.FC<{
                 className="input-ink w-full px-4 py-3 text-sm" required>
                 <option value="">Choose an editor…</option>
                 {editors.map(ed => (
-                  <option key={ed.userId} value={ed.userId}>{ed.displayName} — {editorTypeLabel(ed.editorType)}</option>
+                  <option key={ed.userId} value={ed.userId}>{ed.displayName} — {editorTypeLabel(ed.editorType, ed.isAgent)}</option>
                 ))}
               </select>
             </div>
@@ -281,8 +295,19 @@ const EditorSetupModal: React.FC<{
   onSuccess: () => void;
 }> = ({ fetchWithAuth, onClose, onSuccess }) => {
   const [form, setForm] = useState({ displayName: '', editorType: 'human', genreFocus: '', specialties: '', about: '' });
+  const [avatarUrl, setAvatarUrl] = useState('');
+  const [generatingAvatar, setGeneratingAvatar] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const handleGenerateAvatar = () => {
+    if (!form.displayName.trim()) return;
+    setGeneratingAvatar(true);
+    const seed = encodeURIComponent(form.displayName.replace(/[^a-zA-Z0-9]/g, ''));
+    const url = `https://api.dicebear.com/9.x/lorelei/svg?seed=${seed}`;
+    setAvatarUrl(url);
+    setTimeout(() => setGeneratingAvatar(false), 300);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -298,6 +323,7 @@ const EditorSetupModal: React.FC<{
           genreFocus: form.genreFocus,
           specialties: form.specialties.split(',').map(s => s.trim()).filter(Boolean),
           about: form.about,
+          ...(avatarUrl ? { avatarUrl } : {}),
         }),
       });
       if (!r.ok) {
@@ -344,7 +370,6 @@ const EditorSetupModal: React.FC<{
                 className="input-ink w-full px-4 py-3 text-sm">
                 <option value="human">Human Editor</option>
                 <option value="ai">AI Editor</option>
-                <option value="foreign">Foreign Editor</option>
               </select>
             </div>
             <div>
@@ -362,6 +387,43 @@ const EditorSetupModal: React.FC<{
               <textarea value={form.about} onChange={e => setForm(f => ({ ...f, about: e.target.value }))}
                 placeholder="Describe your editorial approach…" rows={3} className="input-ink w-full px-4 py-3 text-sm resize-none" />
             </div>
+
+            {/* Avatar generation */}
+            <div>
+              <label className="text-xs block mb-2" style={{ color: '#8a7a68' }}>Profile Image (optional)</label>
+              <div className="flex items-center gap-3">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="avatar preview"
+                    style={{ width: 52, height: 52, borderRadius: '50%', objectFit: 'cover', border: '2px solid rgba(167,139,250,0.4)', flexShrink: 0 }} />
+                ) : (
+                  <div style={{ width: 52, height: 52, borderRadius: '50%', flexShrink: 0, background: 'rgba(167,139,250,0.1)', border: '2px dashed rgba(167,139,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>
+                    ✒️
+                  </div>
+                )}
+                <div className="flex-1">
+                  <button type="button" onClick={handleGenerateAvatar}
+                    disabled={!form.displayName.trim() || generatingAvatar}
+                    className="w-full py-2 rounded-xl text-xs font-medium transition-all"
+                    style={{
+                      background: form.displayName.trim() ? 'rgba(167,139,250,0.12)' : 'rgba(167,139,250,0.05)',
+                      border: '1px solid rgba(167,139,250,0.3)',
+                      color: form.displayName.trim() ? '#a78bfa' : '#4a3f35',
+                      cursor: form.displayName.trim() ? 'pointer' : 'not-allowed',
+                    }}>
+                    {generatingAvatar ? 'Generating…' : avatarUrl ? '🔄 Regenerate Avatar' : '✨ Generate AI Avatar'}
+                  </button>
+                  {!form.displayName.trim() && (
+                    <p className="text-xs mt-1" style={{ color: '#4a3f35' }}>Enter a name first</p>
+                  )}
+                </div>
+              </div>
+              {avatarUrl && (
+                <input value={avatarUrl} onChange={e => setAvatarUrl(e.target.value)}
+                  placeholder="Or paste image URL…"
+                  className="input-ink w-full px-3 py-2 text-xs mt-2 font-mono" />
+              )}
+            </div>
+
             {error && (
               <p className="text-xs rounded-lg px-4 py-2.5"
                 style={{ background: 'rgba(220,38,38,0.08)', border: '1px solid rgba(220,38,38,0.2)', color: '#e07070' }}>
@@ -454,7 +516,7 @@ export function Editors() {
   const { fetchWithAuth } = useAuth();
   const [editors, setEditors] = useState<Editor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'ai' | 'human' | 'foreign'>('all');
+  const [filter, setFilter] = useState<'all' | 'ai' | 'human'>('all');
   const [tab, setTab] = useState<'directory' | 'mine'>('directory');
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -478,10 +540,9 @@ export function Editors() {
   };
 
   const FILTER_TABS = [
-    { id: 'all' as const,     label: 'All',              count: editors.length },
-    { id: 'ai' as const,      label: 'AI Editors',       count: editors.filter(e => e.editorType === 'ai').length },
-    { id: 'human' as const,   label: 'Human Editors',    count: editors.filter(e => e.editorType === 'human').length },
-    { id: 'foreign' as const, label: 'Foreign Editors',  count: editors.filter(e => e.editorType === 'foreign').length },
+    { id: 'all' as const,   label: 'All',           count: editors.length },
+    { id: 'ai' as const,    label: 'AI Editors',    count: editors.filter(e => e.editorType === 'ai').length },
+    { id: 'human' as const, label: 'Human Editors', count: editors.filter(e => e.editorType === 'human').length },
   ];
 
   const visible = editors.filter(e =>
@@ -593,7 +654,8 @@ export function Editors() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {visible.map(ed => (
             <EditorCard key={ed.userId} editor={ed}
-              onSubmit={() => { setPreselectedEditor(ed.userId); setShowSubmitModal(true); }} />
+              onSubmit={() => { setPreselectedEditor(ed.userId); setShowSubmitModal(true); }}
+              onMessage={() => { window.location.hash = `messages/${ed.userId}`; }} />
           ))}
         </div>
       )}

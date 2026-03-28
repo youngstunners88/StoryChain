@@ -6,8 +6,8 @@ import { Database } from 'bun:sqlite';
 import { existsSync, mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const DB_PATH = '/home/workspace/StoryChain/data/storychain.db';
-const LOGS_PATH = '/home/workspace/StoryChain/logs';
+const DB_PATH = `${process.cwd()}/data/storychain.db`;
+const LOGS_PATH = `${process.cwd()}/logs`;
 
 async function runMigration() {
   console.log('🚀 StoryChain Migration v2 Starting...\n');

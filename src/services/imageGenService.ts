@@ -1,5 +1,55 @@
 // Image Generation Service
-// Cascade: LocalAI → ComfyUI → Pollinations.ai (free fallback)
+// Cascade: LocalAI → HuggingFace → ComfyUI → Pollinations.ai (free fallback)
+import { writeFile, mkdir } from 'fs/promises';
+import { existsSync } from 'fs';
+import { join } from 'path';
+
+const AVATAR_DIR = join(process.cwd(), 'data', 'avatars');
+
+async function ensureAvatarDir() {
+  if (!existsSync(AVATAR_DIR)) await mkdir(AVATAR_DIR, { recursive: true });
+}
+
+// Generate avatar via HuggingFace Inference API, save locally and return /avatars/... URL
+export async function generateAndSaveAvatar(prompt: string, filename: string): Promise<string | null> {
+  const hfToken = process.env.HUGGINGFACE_ACCESS_TOKEN;
+  if (!hfToken) return null;
+
+  const models = [
+    'black-forest-labs/FLUX.1-schnell',
+    'stabilityai/stable-diffusion-xl-base-1.0',
+  ];
+
+  for (const model of models) {
+    try {
+      console.log(`[ImageGen] Trying HuggingFace ${model} for: ${filename}`);
+      const res = await fetch(`https://router.huggingface.co/hf-inference/models/${model}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${hfToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ inputs: prompt, parameters: { num_inference_steps: 4 } }),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        console.log(`[ImageGen] HF ${model} failed: ${res.status} — ${txt.slice(0, 100)}`);
+        continue;
+      }
+      const buffer = await res.arrayBuffer();
+      if (buffer.byteLength < 1000) { console.log('[ImageGen] HF returned empty/tiny image'); continue; }
+      await ensureAvatarDir();
+      const filePath = join(AVATAR_DIR, filename);
+      await writeFile(filePath, Buffer.from(buffer));
+      console.log(`[ImageGen] HF avatar saved: ${filePath}`);
+      return `/avatars/${filename}`;
+    } catch (err: any) {
+      console.log(`[ImageGen] HF ${model} error: ${err?.message}`);
+    }
+  }
+  return null;
+}
 
 export async function generateImageUrl(prompt: string, options?: {
   width?: number; height?: number; style?: 'portrait' | 'landscape' | 'square';
@@ -69,22 +119,38 @@ export async function generateImageUrl(prompt: string, options?: {
     }
   }
 
-  // 3. Pollinations.ai — always free, no key needed
-  const seed = Math.floor(Math.random() * 99999);
-  return `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=${w}&height=${h}&nologo=true&seed=${seed}`;
+  // 2b. HuggingFace Inference API (returns URL, no disk save in this flow)
+  const hfToken = process.env.HUGGINGFACE_ACCESS_TOKEN;
+  if (hfToken) {
+    try {
+      const tmpName = `tmp_${Date.now()}.jpg`;
+      const saved = await generateAndSaveAvatar(prompt, tmpName);
+      if (saved) return saved;
+    } catch (_) {}
+  }
+
+  // 3. DiceBear — always free, no key needed
+  const seed = encodeURIComponent(prompt.replace(/[^a-zA-Z0-9]/g, '').slice(0, 32) || 'default');
+  return `https://api.dicebear.com/9.x/lorelei/svg?seed=${seed}`;
 }
 
 export function buildAvatarPrompt(name: string, role: string, genre?: string): string {
   const styleMap: Record<string, string> = {
-    comedy: 'vibrant playful colorful',
-    horror: 'dark dramatic gothic',
-    romance: 'warm soft elegant',
-    scifi: 'futuristic digital glowing',
-    mystery: 'noir shadowy cinematic',
-    fantasy: 'ethereal magical otherworldly',
-    action: 'dynamic high-contrast intense',
-    editor: 'professional scholarly literary',
+    comedy:    'vibrant colorful theatrical, warm expressive face, joyful energy',
+    horror:    'dark gothic moody, pale unsettling presence, Victorian shadows, crimson accents',
+    romance:   'warm candlelit elegant, flowing silhouette, soft roses, timeless beauty',
+    scifi:     'cyberpunk futuristic, glowing circuits, neon blue, sleek helmet, star fields',
+    mystery:   'noir cinematic, shadowy trench coat, candlelit detective, mysterious gaze',
+    fantasy:   'ethereal magical, glowing runes, ancient robes, otherworldly aura, soft light',
+    action:    'dynamic intense, battle-worn, high contrast dramatic lighting, powerful stance',
+    adventure: 'rugged explorer, windswept, dramatic landscape, confident expression',
+    editor:    'professional scholarly, warm study, literary surrounded, intelligent gaze',
   };
-  const style = styleMap[genre?.toLowerCase() ?? ''] ?? 'artistic professional';
-  return `${style} portrait avatar of ${role} named "${name}", ${genre ? genre + ' specialist' : 'literary professional'}, artistic illustration, no text, no watermark`;
+  const style = styleMap[genre?.toLowerCase() ?? ''] ?? 'artistic professional, creative aura, thoughtful gaze';
+  return `cinematic portrait of a ${role}, ${style}, character named ${name}, dramatic lighting, detailed, painterly illustration style, no text, no watermark, 4k quality`;
+}
+
+export function buildPollinationsUrl(prompt: string, seed: number): string {
+  const encoded = encodeURIComponent(prompt);
+  return `https://image.pollinations.ai/prompt/${encoded}?width=512&height=512&nologo=true&seed=${seed}&model=flux`;
 }

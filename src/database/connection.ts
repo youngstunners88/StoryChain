@@ -287,6 +287,30 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_editor_profiles_type ON editor_profiles(editor_type);
   `);
 
+  // Auth tables (Phase 10)
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS refresh_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_preview TEXT,
+      revoked INTEGER DEFAULT 0,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user ON refresh_tokens(user_id, revoked);
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id TEXT PRIMARY KEY,
+      user_id TEXT,
+      action TEXT NOT NULL,
+      resource TEXT NOT NULL,
+      ip TEXT,
+      duration_ms INTEGER,
+      status_code INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at);
+  `);
+
   // Migrations for existing databases (safe to run repeatedly)
   const migrations = [
     `ALTER TABLE stories ADD COLUMN cover_url TEXT`,
@@ -294,6 +318,9 @@ export async function initializeDatabase(): Promise<void> {
     `ALTER TABLE stories ADD COLUMN copyright_text TEXT`,
     `ALTER TABLE stories ADD COLUMN dedication TEXT`,
     `ALTER TABLE stories ADD COLUMN book_published INTEGER DEFAULT 0`,
+    // Phase 10 auth
+    `ALTER TABLE users ADD COLUMN password_hash TEXT`,
+    `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'writer'`,
   ];
   for (const sql of migrations) {
     try { database.exec(sql); } catch (_) { /* column already exists */ }

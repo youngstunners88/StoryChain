@@ -11,21 +11,27 @@ import { Editors } from './pages/Editors';
 import { MessagingPanel } from './pages/MessagingPanel';
 import { Publishers } from './pages/Publishers';
 import { NotificationBell } from './components/NotificationBell';
+import { VoiceBar } from './components/VoicePlayer';
 
 // ─── Writers Club Login ───────────────────────────────────────────────────────
 
 const WelcomeScreen: React.FC = () => {
+  const [mode, setMode] = useState<'login' | 'register'>('login');
   const [penName, setPenName] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login } = useAuth();
+  const { login, register } = useAuth();
 
-  const handleJoin = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     const name = penName.trim();
-    if (!name || name.length < 2) return;
+    if (!name || name.length < 2) { setError('Pen name must be at least 2 characters'); return; }
+    if (!password || password.length < 6) { setError('Password must be at least 6 characters'); return; }
     setIsSubmitting(true);
-    await new Promise(r => setTimeout(r, 600));
-    login(name);
+    const result = mode === 'register' ? await register(name, password) : await login(name, password);
+    if (result.error) { setError(result.error); setIsSubmitting(false); }
   };
 
   return (
@@ -75,30 +81,53 @@ const WelcomeScreen: React.FC = () => {
 
         {/* Card */}
         <div className="rounded-2xl p-8" style={{ background: '#161210', border: '1px solid #2a2218', boxShadow: '0 24px 64px rgba(0,0,0,0.4)' }}>
-          <h2 className="font-serif text-xl mb-1" style={{ color: '#ede6d6' }}>Choose your pen name</h2>
-          <p className="text-sm mb-6" style={{ color: '#8a7a68' }}>
-            The name the world will know your stories by
-          </p>
 
-          <form onSubmit={handleJoin} className="space-y-4">
+          {/* Mode toggle */}
+          <div className="flex rounded-xl overflow-hidden mb-6" style={{ background: '#0d0b08', border: '1px solid #2a2218' }}>
+            {(['login', 'register'] as const).map(m => (
+              <button key={m} type="button"
+                onClick={() => { setMode(m); setError(''); }}
+                className="flex-1 py-2.5 text-sm font-medium transition-all"
+                style={{
+                  background: mode === m ? '#c9a84c' : 'transparent',
+                  color: mode === m ? '#0d0b08' : '#8a7a68',
+                }}>
+                {m === 'login' ? 'Returning Writer' : 'New Writer'}
+              </button>
+            ))}
+          </div>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <input
                 type="text"
                 value={penName}
                 onChange={e => setPenName(e.target.value)}
-                placeholder="e.g. Elara Voss, The Inkwright…"
+                placeholder={mode === 'register' ? 'e.g. Elara Voss, The Inkwright…' : 'Your pen name'}
                 maxLength={32}
                 autoFocus
                 className="input-ink w-full px-4 py-3 text-base"
               />
-              <p className="mt-2 text-xs" style={{ color: '#4a3f35' }}>
-                2–32 characters · Shown as your author name on all stories
-              </p>
             </div>
+            <div>
+              <input
+                type="password"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                placeholder={mode === 'register' ? 'Create a password (6+ chars)' : 'Password'}
+                className="input-ink w-full px-4 py-3 text-base"
+              />
+            </div>
+
+            {error && (
+              <p className="text-sm px-3 py-2 rounded-lg" style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
+                {error}
+              </p>
+            )}
 
             <button
               type="submit"
-              disabled={isSubmitting || penName.trim().length < 2}
+              disabled={isSubmitting}
               className="btn-gold w-full py-3 px-6 text-base flex items-center justify-center gap-2"
             >
               {isSubmitting ? (
@@ -107,11 +136,11 @@ const WelcomeScreen: React.FC = () => {
                     <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
                     <path d="M12 2a10 10 0 0 1 10 10" />
                   </svg>
-                  Opening the doors…
+                  {mode === 'register' ? 'Creating your account…' : 'Opening the doors…'}
                 </>
               ) : (
                 <>
-                  Enter the Circle
+                  {mode === 'register' ? 'Join the Circle' : 'Enter the Circle'}
                   <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
                   </svg>
@@ -119,10 +148,6 @@ const WelcomeScreen: React.FC = () => {
               )}
             </button>
           </form>
-
-          <p className="mt-6 text-xs text-center" style={{ color: '#4a3f35' }}>
-            No passwords, no accounts — just your pen name & your stories
-          </p>
         </div>
 
         {/* Feature hints */}
@@ -167,10 +192,10 @@ const NAV_ITEMS = [
 
 const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => void }> = ({ route, penName, onLogout }) => (
   <nav className="fixed top-0 left-0 right-0 z-50"
-    style={{ background: 'rgba(13,11,8,0.92)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #2a2218' }}>
-    <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
+    style={{ background: 'rgba(13,11,8,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid #2a2218' }}>
+    <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
       {/* Logo */}
-      <a href="#feed" className="flex items-center gap-2.5">
+      <a href="#feed" className="flex items-center gap-2 flex-shrink-0">
         <div className="w-7 h-7 rounded-lg flex items-center justify-center"
           style={{ background: 'linear-gradient(135deg, #c9a84c, #b8942e)' }}>
           <svg className="w-4 h-4 text-black" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -178,36 +203,34 @@ const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => 
               d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z" />
           </svg>
         </div>
-        <span className="font-serif font-bold text-lg" style={{ color: '#ede6d6' }}>StoryChain</span>
+        <span className="hidden sm:block font-serif font-bold text-base" style={{ color: '#ede6d6' }}>StoryChain</span>
       </a>
 
-      {/* Nav links */}
-      <div className="flex items-center gap-1">
+      {/* Nav links — desktop only, scrollable */}
+      <div className="hidden md:flex items-center gap-0.5 flex-1 overflow-x-auto scrollbar-none">
         {NAV_ITEMS.map(({ path, label, icon }) => {
           const active = route === path || (path === 'feed' && (route === '' || route === 'feed'));
           return (
             <a key={path} href={`#${path}`}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex-shrink-0"
               style={{
                 color: active ? '#c9a84c' : '#8a7a68',
-                background: active ? 'rgba(201,168,76,0.1)' : 'transparent',
+                background: active ? 'rgba(201,168,76,0.12)' : 'transparent',
               }}>
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+              <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
                 <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
               </svg>
-              <span className="hidden sm:inline">{label}</span>
+              {label}
             </a>
           );
         })}
       </div>
 
-      {/* Notification bell */}
-      <NotificationBell />
-
-      {/* Pen name + logout */}
-      <div className="flex items-center gap-2">
+      {/* Right side */}
+      <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+        <NotificationBell />
         {penName && (
-          <span className="hidden sm:block text-sm px-3 py-1 rounded-lg"
+          <span className="hidden lg:block text-xs px-2.5 py-1 rounded-lg"
             style={{ color: '#c9a84c', background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.15)' }}>
             ✦ {penName}
           </span>
@@ -225,21 +248,27 @@ const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => 
   </nav>
 );
 
-// Bottom nav for mobile
+// Bottom nav for mobile — 5 primary tabs only
+const MOBILE_NAV = NAV_ITEMS.filter(i => ['feed', 'create', 'writers', 'library', 'settings'].includes(i.path));
+
 const BottomNav: React.FC<{ route: string }> = ({ route }) => (
-  <nav className="fixed bottom-0 left-0 right-0 z-50 sm:hidden"
-    style={{ background: 'rgba(13,11,8,0.95)', backdropFilter: 'blur(12px)', borderTop: '1px solid #2a2218' }}>
-    <div className="flex items-center justify-around py-2">
-      {NAV_ITEMS.map(({ path, label, icon }) => {
+  <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
+    style={{ background: 'rgba(13,11,8,0.97)', backdropFilter: 'blur(16px)', borderTop: '1px solid #2a2218' }}>
+    <div className="flex items-stretch">
+      {MOBILE_NAV.map(({ path, label, icon }) => {
         const active = route === path || (path === 'feed' && (route === '' || route === 'feed'));
         return (
           <a key={path} href={`#${path}`}
-            className="flex flex-col items-center gap-1 px-4 py-1 rounded-lg"
+            className="relative flex flex-1 flex-col items-center justify-center gap-1 py-2.5 transition-colors"
             style={{ color: active ? '#c9a84c' : '#4a3f35' }}>
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+            {active && (
+              <span className="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 w-8 rounded-full"
+                style={{ background: '#c9a84c' }} />
+            )}
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={active ? 2 : 1.75}>
               <path strokeLinecap="round" strokeLinejoin="round" d={icon} />
             </svg>
-            <span className="text-[10px] font-medium">{label}</span>
+            <span className="text-[10px] font-medium tracking-wide">{label}</span>
           </a>
         );
       })}
@@ -292,7 +321,7 @@ const AppContent: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen pb-16 sm:pb-0 pt-14" style={{ background: '#0d0b08' }}>
+    <div className="min-h-screen pb-16 md:pb-0 pt-14" style={{ background: '#0d0b08' }}>
       <TopNav route={route} penName={penName} onLogout={logout} />
       <BottomNav route={route} />
       <main>
@@ -306,6 +335,7 @@ const AppContent: React.FC = () => {
           </motion.div>
         </AnimatePresence>
       </main>
+      <VoiceBar />
     </div>
   );
 };

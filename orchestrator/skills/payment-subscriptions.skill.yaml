@@ -1,0 +1,75 @@
+name: payment-subscriptions
+version: 1.0.0
+description: >
+  Stripe-powered subscription billing and one-time payments for StoryChain.
+  Premium Library access ($5–15/mo), NFT minting fees, Foreign Agent API
+  tier, and crypto rails for STORY token purchases.
+
+triggers:
+  - "add payments"
+  - "stripe integration"
+  - "subscriptions"
+  - "premium library"
+  - "monetise"
+
+capabilities:
+  - stripe_subscriptions
+  - one_time_payments
+  - crypto_payment_rails
+  - revenue_recognition
+  - churn_prevention
+  - writer_payouts
+
+implementation:
+  stripe:
+    plans:
+      - id: reader_monthly     price: $5/mo    features: [premium_library, ad_free, early_access]
+      - id: writer_monthly     price: $10/mo   features: [premium_library, ad_free, priority_agent_collab, analytics]
+      - id: creator_monthly    price: $15/mo   features: [all_writer, nft_minting_credits_5/mo, featured_placement]
+
+    payment_methods: [card, Apple Pay, Google Pay]
+    webhooks_handled:
+      - customer.subscription.created → grant premium access
+      - customer.subscription.deleted → revoke premium access
+      - invoice.payment_failed → email + grace period
+      - charge.succeeded → log revenue event
+
+    routes:
+      - POST /api/billing/checkout       # Create Stripe Checkout session
+      - POST /api/billing/portal         # Customer billing portal
+      - POST /api/billing/webhook        # Stripe webhook receiver
+      - GET  /api/billing/status         # Current user subscription status
+
+  nft_minting_fees:
+    fee: 0.1 SOL per mint (covers Arweave + Solana tx)
+    payment: Stripe (fiat) or SOL direct
+    royalty_split_on_secondary:
+      - platform: 5%
+      - all_contributors: 10% (split proportionally by segments)
+
+  writer_payouts:
+    minimum_threshold: $25
+    methods: [Stripe Connect (fiat), Celo wallet (STORY tokens)]
+    payout_schedule: monthly (1st of month)
+    royalty_source: secondary NFT sales on Magic Eden / Tensor
+
+  db_migrations:
+    - ALTER TABLE users ADD COLUMN stripe_customer_id TEXT
+    - ALTER TABLE users ADD COLUMN subscription_status TEXT DEFAULT 'free'
+    - ALTER TABLE users ADD COLUMN subscription_expires_at DATETIME
+    - CREATE TABLE payments (id TEXT PRIMARY KEY, user_id TEXT, amount INTEGER, currency TEXT, type TEXT, stripe_session_id TEXT, status TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+    - CREATE TABLE payouts (id TEXT PRIMARY KEY, user_id TEXT, amount REAL, currency TEXT, method TEXT, status TEXT, processed_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)
+
+files_to_create:
+  - src/services/stripeService.ts      # Checkout, webhooks, subscription sync
+  - src/api/billingRoutes.ts           # Billing API routes
+  - src/pages/Pricing.tsx              # Pricing page component
+  - src/pages/BillingPortal.tsx        # User subscription management
+
+env_vars_needed:
+  - STRIPE_SECRET_KEY=sk_live_xxx
+  - STRIPE_PUBLISHABLE_KEY=pk_live_xxx
+  - STRIPE_WEBHOOK_SECRET=whsec_xxx
+  - STRIPE_PRICE_READER=price_xxx
+  - STRIPE_PRICE_WRITER=price_xxx
+  - STRIPE_PRICE_CREATOR=price_xxx

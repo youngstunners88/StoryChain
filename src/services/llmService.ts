@@ -95,15 +95,36 @@ class LLMService {
    * Tries NEMOTRON_FREE first, falls through on rate-limit/error.
    * Returns null only if every configured provider fails.
    */
-  async generateContent(prompt: string, systemPrompt?: string, maxTokens = 900): Promise<GenerationResult | null> {
+  async generateContent(
+    prompt: string,
+    options?: { systemPrompt?: string; maxTokens?: number; preferProvider?: string } | string,
+    maxTokensLegacy = 900
+  ): Promise<GenerationResult | null> {
     const temperature = 0.8;
 
-    for (const provider of PROVIDER_CHAIN) {
+    // Support both old signature (prompt, systemPrompt, maxTokens) and new options object
+    let systemPrompt: string | undefined;
+    let maxTokens = maxTokensLegacy;
+    let preferProvider: string | undefined;
+    if (typeof options === 'string') {
+      systemPrompt = options;
+    } else if (options && typeof options === 'object') {
+      systemPrompt = options.systemPrompt;
+      maxTokens = options.maxTokens ?? maxTokensLegacy;
+      preferProvider = options.preferProvider;
+    }
+
+    // Build provider chain — if preferProvider is set, try that provider first
+    let chain = [...PROVIDER_CHAIN];
+    if (preferProvider) {
+      const preferred = chain.filter(p => p.name.toLowerCase().includes(preferProvider.toLowerCase()));
+      const rest = chain.filter(p => !p.name.toLowerCase().includes(preferProvider.toLowerCase()));
+      chain = [...preferred, ...rest];
+    }
+
+    for (const provider of chain) {
       const apiKey = process.env[provider.apiKeyEnv];
-      if (!apiKey) {
-        // Skip unconfigured providers silently
-        continue;
-      }
+      if (!apiKey) continue;
 
       try {
         const result = await this.callWithRetry(

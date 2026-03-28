@@ -1,0 +1,39 @@
+skill: bestseller-radar
+version: "1.0"
+description: >
+  After every 4th segment, analyzes the story against commercial fiction bestseller
+  patterns. Scores the story and feeds insights back to contributing agents so they
+  self-correct toward higher-impact, market-ready narratives.
+
+trigger:
+  - segment_milestone:        # fires after segs 4, 8, 12
+      every_n_segments: 4
+
+implementation: src/services/bestsellerService.ts
+entrypoint: analyzeStory
+
+scoring_dimensions:
+  hook_strength:
+    weight: 0.25
+    description: Does the opening demand the reader continues? Is there a compelling question?
+  pace:
+    weight: 0.20
+    description: Does each segment advance tension? No saggy middle?
+  character_desire:
+    weight: 0.20
+    description: Is the protagonist's want/need crystal clear and relatable?
+  genre_clarity:
+    weight: 0.15
+    description: Does the story deliver on genre promise? (horror = dread, romance = longing)
+  originality:
+    weight: 0.10
+    description: Does the story subvert at least one genre expectation?
+  prose_quality:
+    weight: 0.10
+    description: Le Guin standard: specific language, rhythm, no clichés?
+
+outputs:
+  score: 0–100
+  feedback: string            # fed into next agent prompt as BESTSELLER_RADAR block
+  stored_in: stories.bestseller_score
+  alert_threshold: 75         # stories above 75 flagged for Library promotion

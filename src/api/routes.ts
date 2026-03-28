@@ -5,7 +5,8 @@ import { DEFAULT_CHARACTER_EXTENSION, LLM_MODELS, ApiError } from '../types/inde
 import { timingSafeEqual } from 'node:crypto';
 import { getDb } from '../database/connection.js';
 import { config } from '../config/index.js';
-import { appendFileSync } from 'fs';
+import { appendFileSync, readFileSync, writeFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import {
   handleApiError,
   createStoryChainError,
@@ -14,67 +15,12 @@ import {
   generateRequestId,
 } from '../utils/errorHandler.js';
 
-// Auth middleware - bearer token verification
-async function requireAuth(c: Context): Promise<{ userId: string; email: string } | Response> {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) {
-    const error = createStoryChainError(
-      new Error('Missing authorization header'),
-      'UNAUTHORIZED',
-      { hint: 'Include "Authorization: Bearer <token>" header' }
-    );
-    return c.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          retryable: false,
-        },
-        requestId: error.requestId,
-        timestamp: new Date().toISOString(),
-      },
-      401,
-      { 'X-Request-Id': error.requestId }
-    );
-  }
-
-  const token = auth.slice(7);
-
-  // Accept any token that's at least 20 characters
-  if (!token || token.length < 20) {
-    const error = createStoryChainError(
-      new Error('Invalid token format'),
-      'INVALID_TOKEN_FORMAT',
-      { hint: 'Token must be at least 20 characters' }
-    );
-    return c.json(
-      {
-        error: {
-          code: error.code,
-          message: error.message,
-          details: error.details,
-          retryable: false,
-        },
-        requestId: error.requestId,
-        timestamp: new Date().toISOString(),
-      },
-      401,
-      { 'X-Request-Id': error.requestId }
-    );
-  }
-
-  // Derive user ID from token (last 16 chars for consistency)
-  const userId = 'user_' + token.slice(-16);
-  const email = 'user@storychain.local';
-
-  return { userId, email };
-}
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 // GET /api/user/settings
 export async function getUserSettings(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   try {
     const database = await getDb();
@@ -83,8 +29,8 @@ export async function getUserSettings(c: Context) {
     if (!user) {
       // Create default user - NO TOKENS
       database.run(
-        'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
-        [auth.userId, auth.email.split('@')[0], auth.email, 'nemotron-super', false]
+        'INSERT OR IGNORE INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
+        [auth.userId, auth.userId, `${auth.userId}@storychain.local`, 'nemotron-super', false]
       );
 
       const requestId = generateRequestId();
@@ -123,7 +69,7 @@ export async function getUserSettings(c: Context) {
 // POST /api/user/settings
 export async function updateUserSettings(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   try {
     const body = await c.req.json();
@@ -164,7 +110,7 @@ export async function updateUserSettings(c: Context) {
 // GET /api/user/profile
 export async function getUserProfile(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   try {
     const database = await getDb();
@@ -173,8 +119,8 @@ export async function getUserProfile(c: Context) {
     if (!user) {
       // Create default user - NO TOKENS
       database.run(
-        'INSERT INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
-        [auth.userId, auth.email.split('@')[0], auth.email, 'nemotron-super', false]
+        'INSERT OR IGNORE INTO users (id, username, email, preferred_model, auto_purchase_extensions) VALUES (?, ?, ?, ?, ?)',
+        [auth.userId, auth.userId, `${auth.userId}@storychain.local`, 'nemotron-super', false]
       );
       user = database.query('SELECT * FROM users WHERE id = ?').get(auth.userId);
     }
@@ -250,7 +196,7 @@ export async function getModels(c: Context) {
 // POST /api/settings/api-keys
 export async function saveApiKey(c: Context) {
   const auth = await requireAuth(c);
-  if (auth instanceof Response) return auth;
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
 
   try {
     const { key, value } = await c.req.json();
@@ -271,11 +217,34 @@ export async function saveApiKey(c: Context) {
       });
     }
 
+    // Write to .env file
+    const envPath = join(process.cwd(), '.env');
+    let envContent = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : '';
+    const lineRegex = new RegExp(`^${key}=.*$`, 'm');
+    if (lineRegex.test(envContent)) {
+      envContent = envContent.replace(lineRegex, `${key}=${value}`);
+    } else {
+      envContent = envContent.trimEnd() + `\n${key}=${value}\n`;
+    }
+    writeFileSync(envPath, envContent, 'utf-8');
+
+    // Hot-update running process so it takes effect immediately without restart
+    process.env[key] = value;
+    const configKeyMap: Record<string, string> = {
+      OPENROUTER_API_KEY: 'openrouter',
+      GROQ_API_KEY:       'groq',
+      GOOGLE_API_KEY:     'google',
+      OPENAI_API_KEY:     'openai',
+      ANTHROPIC_API_KEY:  'anthropic',
+    };
+    const ck = configKeyMap[key];
+    if (ck) (config.apiKeys as Record<string, string>)[ck] = value;
+
     const requestId = generateRequestId();
     return c.json(
       {
         success: true,
-        message: `Please add ${key} to your .env file`,
+        message: `${key} saved and activated`,
         requestId,
         timestamp: new Date().toISOString(),
       },
@@ -292,14 +261,7 @@ export async function createStory(c: Context) {
   const startTime = Date.now();
 
   // Try to get auth, but don't require it
-  let auth: { userId: string; email: string } | null = null;
-  const authHeader = c.req.header('authorization');
-  if (authHeader?.startsWith('Bearer ')) {
-    const token = authHeader.slice(7);
-    if (token && token.length >= 20) {
-      auth = { userId: 'user_' + token.slice(-16), email: 'user@storychain.local' };
-    }
-  }
+  const auth = await requireAuth(c);
 
   try {
     const body = await c.req.json();
@@ -346,7 +308,7 @@ export async function createStory(c: Context) {
     if (auth) {
       // Authenticated user
       finalAuthorId = auth.userId;
-      finalAuthorName = auth.email.split('@')[0];
+      finalAuthorName = auth.userId.replace('user_', '');
     } else if (authorId) {
       // Provided author (agent or anonymous)
       finalAuthorId = authorId;
@@ -361,8 +323,8 @@ export async function createStory(c: Context) {
     let user = database.query('SELECT * FROM users WHERE id = ?').get(finalAuthorId);
     if (!user) {
       database.run(
-        'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
-        [finalAuthorId, finalAuthorName, `${finalAuthorId}@storychain.local`, resolvedModel]
+        'INSERT OR IGNORE INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+        [finalAuthorId, finalAuthorId, `${finalAuthorId}@storychain.local`, resolvedModel]
       );
     }
 
@@ -409,6 +371,62 @@ export async function createStory(c: Context) {
   } catch (error) {
     return handleApiError(c, error, 'createStory', { userId: auth?.userId || 'anonymous' });
   }
+}
+
+// GET /api/tokens - Token balance info
+export async function getTokenInfo(c: Context) {
+  const auth = await requireAuth(c);
+  if (!auth) return c.json({ error: 'Unauthorized', code: 'UNAUTHORIZED' }, 401);
+
+  try {
+    const database = await getDb();
+    let user = database.query('SELECT tokens FROM users WHERE id = ?').get(auth.userId) as any;
+
+    if (!user) {
+      database.run(
+        'INSERT OR IGNORE INTO users (id, username, email, tokens, preferred_model) VALUES (?, ?, ?, 1000, ?)',
+        [auth.userId, auth.userId, `${auth.userId}@storychain.local`, 'nemotron-super']
+      );
+      user = { tokens: 1000 };
+    }
+
+    const requestId = generateRequestId();
+    return c.json(
+      {
+        balance: user.tokens ?? 1000,
+        maxBalance: 1000,
+        nextRefreshIn: 3 * 60 * 60 * 1000,
+        canCreateAI: (user.tokens ?? 1000) >= 10,
+        canCreateManual: (user.tokens ?? 1000) >= 5,
+        requestId,
+        timestamp: new Date().toISOString(),
+      },
+      200,
+      { 'X-Request-Id': requestId }
+    );
+  } catch (error) {
+    return handleApiError(c, error, 'getTokenInfo', { userId: auth.userId });
+  }
+}
+
+// GET /api/tokens/costs - Token cost table
+export async function getTokenCosts(c: Context) {
+  const requestId = generateRequestId();
+  return c.json(
+    {
+      costs: {
+        aiStory: 10,
+        manualStory: 5,
+        aiContribute: 3,
+        maxBalance: 1000,
+        refreshHours: 3,
+      },
+      requestId,
+      timestamp: new Date().toISOString(),
+    },
+    200,
+    { 'X-Request-Id': requestId }
+  );
 }
 
 // Health check

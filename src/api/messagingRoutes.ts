@@ -3,13 +3,7 @@ import type { Context } from 'hono';
 import { getDb } from '../database/connection.js';
 import { generateRequestId } from '../utils/errorHandler.js';
 
-function requireAuth(c: Context): { userId: string } | null {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  if (!token || token.length < 20) return null;
-  return { userId: 'user_' + token.slice(-16) };
-}
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 function conversationId(a: string, b: string): string {
   return [a, b].sort().join('::');
@@ -17,7 +11,7 @@ function conversationId(a: string, b: string): string {
 
 // GET /api/messages — all conversations for the current user
 export async function getConversations(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const db = await getDb();
@@ -50,7 +44,7 @@ export async function getConversations(c: Context) {
 
 // GET /api/messages/:otherId — message thread with a specific person/agent
 export async function getThread(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   const otherId = c.req.param('otherId');
   const convId = conversationId(auth.userId, otherId);
@@ -77,7 +71,7 @@ export async function getThread(c: Context) {
 
 // POST /api/messages — send a message
 export async function sendMessage(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
@@ -116,7 +110,7 @@ export async function sendMessage(c: Context) {
 
 // PATCH /api/messages/:otherId/read — mark thread as read
 export async function markThreadRead(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   const otherId = c.req.param('otherId');
   const convId = conversationId(auth.userId, otherId);
@@ -131,7 +125,7 @@ export async function markThreadRead(c: Context) {
 
 // GET /api/messages/unread-count — total unread messages
 export async function getUnreadCount(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ unreadMessages: 0 });
   try {
     const db = await getDb();

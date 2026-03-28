@@ -5,6 +5,7 @@ import { readdir, readFile, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { parse as parseYaml } from 'yaml';
 import { generateRequestId } from '../utils/errorHandler.js';
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 // ─── Genre colour map ─────────────────────────────────────────────────────────
 
@@ -44,14 +45,6 @@ async function loadAgentProfiles(): Promise<any[]> {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function requireAuth(c: Context): { userId: string } | null {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  if (!token || token.length < 20) return null;
-  return { userId: 'user_' + token.slice(-16) };
-}
-
 async function ensureAgentProfilesInDb(database: any, agents: any[]): Promise<void> {
   for (const agent of agents) {
     const userId = agent.id;
@@ -69,31 +62,48 @@ async function ensureAgentProfilesInDb(database: any, agents: any[]): Promise<vo
     const id = agent.identity;
     if (!id) continue;
 
-    const existing = database.query('SELECT user_id FROM writer_profiles WHERE user_id = ?').get(userId);
+    const existing = database.query('SELECT user_id, avatar_url FROM writer_profiles WHERE user_id = ?').get(userId);
     const favLit = JSON.stringify(id.favorite_literature ?? []);
     const socialLinks = JSON.stringify(id.social_links ?? {});
     const genre = agent.persona?.style ?? 'default';
 
+    const avatarUrl = id.avatar_url ?? null;
+
     if (existing) {
-      database.run(
-        `UPDATE writer_profiles SET
-          display_name=?, age=?, country=?, about=?, favorite_literature=?,
-          social_links=?, genre=?, genre_label=?, avatar_color=?, avatar_emoji=?,
-          is_agent=1, updated_at=CURRENT_TIMESTAMP
-         WHERE user_id=?`,
-        [agent.name, id.age ?? null, id.country_of_origin ?? null, id.about ?? null,
-         favLit, socialLinks, genre, id.genre_label ?? genre, id.avatar_color ?? '#c9a84c',
-         id.avatar_emoji ?? '🤖', userId]
-      );
+      // Only overwrite avatar_url if DB doesn't already have one and YAML provides one
+      const currentAvatar = (existing as any).avatar_url;
+      if (avatarUrl && !currentAvatar) {
+        database.run(
+          `UPDATE writer_profiles SET
+            display_name=?, age=?, country=?, about=?, favorite_literature=?,
+            social_links=?, genre=?, genre_label=?, avatar_color=?, avatar_emoji=?,
+            avatar_url=?, is_agent=1, updated_at=CURRENT_TIMESTAMP
+           WHERE user_id=?`,
+          [agent.name, id.age ?? null, id.country_of_origin ?? null, id.about ?? null,
+           favLit, socialLinks, genre, id.genre_label ?? genre, id.avatar_color ?? '#c9a84c',
+           id.avatar_emoji ?? '🤖', avatarUrl, userId]
+        );
+      } else {
+        database.run(
+          `UPDATE writer_profiles SET
+            display_name=?, age=?, country=?, about=?, favorite_literature=?,
+            social_links=?, genre=?, genre_label=?, avatar_color=?, avatar_emoji=?,
+            is_agent=1, updated_at=CURRENT_TIMESTAMP
+           WHERE user_id=?`,
+          [agent.name, id.age ?? null, id.country_of_origin ?? null, id.about ?? null,
+           favLit, socialLinks, genre, id.genre_label ?? genre, id.avatar_color ?? '#c9a84c',
+           id.avatar_emoji ?? '🤖', userId]
+        );
+      }
     } else {
       database.run(
         `INSERT INTO writer_profiles
           (user_id, display_name, age, country, about, favorite_literature,
-           social_links, genre, genre_label, avatar_color, avatar_emoji, is_agent)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+           social_links, genre, genre_label, avatar_color, avatar_emoji, avatar_url, is_agent)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
         [userId, agent.name, id.age ?? null, id.country_of_origin ?? null, id.about ?? null,
          favLit, socialLinks, genre, id.genre_label ?? genre,
-         id.avatar_color ?? '#c9a84c', id.avatar_emoji ?? '🤖']
+         id.avatar_color ?? '#c9a84c', id.avatar_emoji ?? '🤖', avatarUrl]
       );
     }
   }
@@ -230,7 +240,7 @@ export async function getWriter(c: Context) {
 // ─── PUT /api/writers/me ──────────────────────────────────────────────────────
 
 export async function updateWriterProfile(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
 
   try {
@@ -281,7 +291,7 @@ export async function updateWriterProfile(c: Context) {
 // ─── POST /api/writers/me/avatar ──────────────────────────────────────────────
 
 export async function uploadAvatar(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
 
   try {
@@ -330,7 +340,7 @@ export async function uploadAvatar(c: Context) {
 // ─── GET /api/writers/me/profile — ensure human profile exists ────────────────
 
 export async function ensureMyProfile(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
 
   try {
@@ -393,7 +403,7 @@ export async function getForeignAgents(c: Context) {
 }
 
 export async function registerForeignAgent(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
 
   try {
@@ -445,7 +455,7 @@ export async function registerForeignAgent(c: Context) {
 }
 
 export async function uploadForeignAgentAvatar(c: Context) {
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
 
   const agentId = c.req.param('id');

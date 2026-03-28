@@ -3,13 +3,7 @@ import type { Context } from 'hono';
 import { getDb } from '../database/connection.js';
 import { generateRequestId } from '../utils/errorHandler.js';
 
-function requireAuth(c: Context): { userId: string } | null {
-  const auth = c.req.header('authorization');
-  if (!auth?.startsWith('Bearer ')) return null;
-  const token = auth.slice(7);
-  if (!token || token.length < 20) return null;
-  return { userId: 'user_' + token.slice(-16) };
-}
+import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
@@ -99,7 +93,7 @@ export async function getBook(c: Context) {
 // PUT /api/stories/:id/book
 export async function updateBook(c: Context) {
   const storyId = c.req.param('id');
-  const auth = requireAuth(c);
+  const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
 
   try {
@@ -146,9 +140,8 @@ export async function generateCoverPrompt(c: Context) {
     if (!story) return c.json({ error: 'Story not found' }, 404);
 
     const genre = story.genre_label ?? story.genre ?? 'literary fiction';
-    const seed = Math.floor(Math.random() * 9999);
-    const prompt = `book cover art for "${story.title}", ${genre} genre, dramatic cinematic lighting, professional illustration, rich deep colors, painterly style, no text, no title`;
-    const url = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=1024&nologo=true&seed=${seed}`;
+    const seed = encodeURIComponent((story.title || '').replace(/[^a-zA-Z0-9]/g, '').slice(0, 32) || 'book');
+    const url = `https://api.dicebear.com/9.x/shapes/svg?seed=${seed}&size=512`;
 
     return c.json({ coverPromptUrl: url, title: story.title, genre, seed });
   } catch (error) {

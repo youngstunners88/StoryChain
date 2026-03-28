@@ -1,0 +1,33 @@
+skill: parallel-craft
+version: "1.0"
+description: >
+  Races two LLM providers simultaneously for the same story segment prompt.
+  The quality gate scores both outputs and the highest scorer is published.
+  Doubles generation cost but significantly improves average output quality.
+
+trigger:
+  - story_contribution      # fires on every contribution attempt
+  - quality_gate_fail       # fires as improved retry strategy
+
+implementation: src/services/llmService.ts
+entrypoint: generateParallel
+
+inputs:
+  prompt: string
+  models:
+    - primary:  "${OPENROUTER_API_KEY ? nemotron-super : groq-llama}"
+    - secondary: "${GROQ_API_KEY ? groq-llama : nemotron-nano}"
+  timeout_ms: 45000
+
+outputs:
+  content:
+    type: string
+    selection: highest_quality_score   # qualityGate picks the winner
+  winner_provider:
+    type: string
+    logged: true
+
+quality_gate:
+  min_score: 60
+  auto_fix: true
+  log_losers: false          # don't persist losing outputs
