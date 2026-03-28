@@ -2,8 +2,62 @@
 import type { Context } from 'hono';
 import { getDb } from '../database/connection.js';
 import { generateRequestId } from '../utils/errorHandler.js';
+import { llmService } from '../services/llmService.js';
 
 import { requireAuthCompat as requireAuth } from '../middleware/auth.js';
+
+// Generate an LLM reply from an agent or editor when a human DMs them
+async function triggerAgentReply(
+  agentId: string,
+  humanUserId: string,
+  humanName: string,
+  humanMessage: string,
+  convId: string,
+): Promise<void> {
+  try {
+    const db = await getDb();
+
+    // Get persona — check writer_profiles first, then editor_profiles
+    const wp = db.query('SELECT display_name, about, genre FROM writer_profiles WHERE user_id=?').get(agentId) as any;
+    const ep = db.query('SELECT display_name, about FROM editor_profiles WHERE user_id=?').get(agentId) as any;
+    const profile = wp ?? ep;
+    if (!profile) return;
+
+    const role = wp ? `AI ${wp.genre ?? 'literary'} story writer` : 'literary editor';
+    const recentHistory = (db.query(
+      `SELECT sender_name, content FROM messages WHERE conversation_id=? ORDER BY created_at DESC LIMIT 6`
+    ).all(convId) as any[]).reverse().map((m: any) => `${m.sender_name}: ${m.content}`).join('\n');
+
+    const prompt = `You are ${profile.display_name}, a ${role} on StoryChain — a collaborative AI storytelling platform.
+
+${profile.about}
+
+${recentHistory ? `Recent conversation:\n${recentHistory}\n\n` : ''}${humanName} just wrote: "${humanMessage}"
+
+Reply in character as ${profile.display_name}. Be warm, specific, and genuine — like a real writer or editor would respond to a fellow writer. 2–4 sentences maximum. No markdown.
+
+${profile.display_name}:`;
+
+    const result = await llmService.generateContent(prompt, { maxTokens: 200 });
+    const reply = result?.content?.trim();
+    if (!reply) return;
+
+    const replyId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    db.run(
+      `INSERT INTO messages (id, conversation_id, sender_id, sender_name, content) VALUES (?, ?, ?, ?, ?)`,
+      [replyId, convId, agentId, profile.display_name, reply],
+    );
+
+    // Notify the human writer
+    const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    db.run(
+      `INSERT INTO notifications (id, recipient_id, type, title, body, link, from_id, from_name) VALUES (?, ?, 'message', ?, ?, '#messages', ?, ?)`,
+      [notifId, humanUserId, `${profile.display_name} replied`, reply.slice(0, 100), agentId, profile.display_name],
+    );
+  } catch (err) {
+    console.error('[Messaging] Agent auto-reply failed:', err);
+  }
+}
 
 function conversationId(a: string, b: string): string {
   return [a, b].sort().join('::');
@@ -46,7 +100,7 @@ export async function getConversations(c: Context) {
 export async function getThread(c: Context) {
   const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
-  const otherId = c.req.param('otherId');
+  const otherId = c.req.param('partnerId') ?? c.req.param('otherId');
   const convId = conversationId(auth.userId, otherId);
   try {
     const db = await getDb();
@@ -75,7 +129,9 @@ export async function sendMessage(c: Context) {
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
   try {
     const body = await c.req.json();
-    const { recipientId, content, senderName } = body;
+    const urlPartnerId = c.req.param('partnerId');
+    const { recipientId: bodyRecipientId, content, senderName } = body;
+    const recipientId = urlPartnerId ?? bodyRecipientId;
     if (!recipientId || !content?.trim()) return c.json({ error: 'recipientId and content required' }, 400);
     if (content.length > 2000) return c.json({ error: 'Message too long (max 2000 chars)' }, 400);
 
@@ -92,8 +148,17 @@ export async function sendMessage(c: Context) {
       [id, convId, auth.userId, name, content.trim()]
     );
 
-    // Create notification for recipient (if they're a real user, not an agent)
-    if (!recipientId.startsWith('agent_')) {
+    // Check if recipient is an AI agent or editor
+    const recipientIsAgent = (
+      db.query('SELECT 1 FROM writer_profiles WHERE user_id=? AND is_agent=1').get(recipientId) ??
+      db.query('SELECT 1 FROM editor_profiles WHERE user_id=? AND is_agent=1').get(recipientId)
+    ) != null;
+
+    if (recipientIsAgent) {
+      // Fire agent reply asynchronously — don't block the response
+      setTimeout(() => triggerAgentReply(recipientId, auth.userId, name, content.trim(), convId), 800);
+    } else {
+      // Notify human recipient
       const notifId = `notif_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
       db.run(
         `INSERT INTO notifications (id, recipient_id, type, title, body, link, from_id, from_name)
@@ -112,7 +177,7 @@ export async function sendMessage(c: Context) {
 export async function markThreadRead(c: Context) {
   const auth = await requireAuth(c);
   if (!auth) return c.json({ error: 'Unauthorized' }, 401);
-  const otherId = c.req.param('otherId');
+  const otherId = c.req.param('partnerId') ?? c.req.param('otherId');
   const convId = conversationId(auth.userId, otherId);
   try {
     const db = await getDb();

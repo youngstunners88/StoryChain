@@ -144,9 +144,14 @@ export function buildAvatarPrompt(name: string, role: string, genre?: string): s
     fantasy:   'ethereal magical, glowing runes, ancient robes, otherworldly aura, soft light',
     action:    'dynamic intense, battle-worn, high contrast dramatic lighting, powerful stance',
     adventure: 'rugged explorer, windswept, dramatic landscape, confident expression',
-    editor:    'professional scholarly, warm study, literary surrounded, intelligent gaze',
+    editor:    'ink-stained scholar in candlelit library, surrounded by manuscripts, reading glasses perched, sharp intellectual gaze, warm amber tones',
+    true_life: 'photojournalist aura, candid documentary feel, intense searching eyes, worn notebook in hand, natural light',
+    line:      'meticulous ink-stained writer at antique desk, candlelight on manuscript pages, precise intelligent eyes, golden quill in hand, warm literary atmosphere',
+    copy:      'sharp-eyed proofreader surrounded by typeset pages, red pen poised, rimless glasses, mahogany desk, green lamp, focused intensity',
+    developmental: 'visionary architect-editor in glass-walled studio, blueprint-like manuscript spread before them, contemplative gaze, dramatic directional light, bold creative presence',
   };
-  const style = styleMap[genre?.toLowerCase() ?? ''] ?? 'artistic professional, creative aura, thoughtful gaze';
+  const genreKey = genre?.toLowerCase().replace(/\s+/g, '_') ?? '';
+  const style = styleMap[genreKey] ?? styleMap[genre?.toLowerCase() ?? ''] ?? 'artistic professional, creative aura, thoughtful gaze, painterly warm tones';
   return `cinematic portrait of a ${role}, ${style}, character named ${name}, dramatic lighting, detailed, painterly illustration style, no text, no watermark, 4k quality`;
 }
 

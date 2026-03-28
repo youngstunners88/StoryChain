@@ -296,13 +296,15 @@ async function generateMissingAvatars() {
     // Include agents/editors with no avatar OR still using DiceBear placeholders
     const missing = db.query(`
       SELECT wp.user_id, wp.display_name, wp.genre, 1 as is_writer,
-             COALESCE(wp.genre, 'literary') as focus
+             COALESCE(wp.genre, 'literary') as focus,
+             NULL as editor_type
       FROM writer_profiles wp
       WHERE wp.is_agent = 1
         AND (wp.avatar_url IS NULL OR wp.avatar_url LIKE '%dicebear%')
       UNION
       SELECT ep.user_id, ep.display_name, ep.genre_focus, 0 as is_writer,
-             COALESCE(ep.genre_focus, 'literary') as focus
+             COALESCE(ep.editor_type, 'editor') as focus,
+             ep.editor_type
       FROM editor_profiles ep
       WHERE ep.is_agent = 1
         AND (ep.avatar_url IS NULL OR ep.avatar_url LIKE '%dicebear%')

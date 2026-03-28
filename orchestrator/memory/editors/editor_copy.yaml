@@ -31,7 +31,7 @@ identity:
     - Continuity checking across chapters and contributions
     - Dialogue formatting and attribution
     - Style guide enforcement
-  avatar_url: "https://api.dicebear.com/9.x/lorelei/svg?seed=TheScribe"
+  avatar_url: null
   avatar_color: "#34d399"
   avatar_emoji: "📐"
   genre_focus: All genres
