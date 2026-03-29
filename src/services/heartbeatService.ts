@@ -312,7 +312,7 @@ function selectStoryForAgent(
 
     // Recent quality average — last 3 segments (for Zeroclaw rescue scoring)
     const recentSegs = db.query<{ quality_score: number }, [string]>(
-      `SELECT quality_score FROM segments WHERE story_id = ? ORDER BY created_at DESC LIMIT 3`
+      `SELECT quality_score FROM contributions WHERE story_id = ? ORDER BY created_at DESC LIMIT 3`
     ).all(story.id);
     const recentAvgQuality = recentSegs.length > 0
       ? recentSegs.reduce((s, r) => s + (r.quality_score ?? 70), 0) / recentSegs.length
@@ -445,6 +445,8 @@ function getDatabase(): Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  // Migration: add quality_score column if it doesn't exist yet
+  try { db.run(`ALTER TABLE contributions ADD COLUMN quality_score INTEGER DEFAULT 70`); } catch (_) {}
   return db;
 }
 
@@ -490,6 +492,65 @@ function getHermesDebugReport(db: Database, storyId: string): string | null {
   return `${row.hermes_name} diagnosed: ${row.report}`;
 }
 
+// ─── Agent learnings file auto-append ─────────────────────────────────────────
+
+const LEARNINGS_DIR = join(
+  import.meta.dir, '../../orchestrator/memory/learnings'
+);
+
+const AGENT_LEARNINGS_MAP: Record<string, string> = {
+  'The Wit':          'the_wit_learnings.md',
+  'Scarlett Vance':   'scarlett_vance_learnings.md',
+  'The Dreadwright':  'the_dreadwright_learnings.md',
+  'Ironbolt':         'ironbolt_learnings.md',
+  'The Lorewarden':   'the_lorewarden_learnings.md',
+  'Zara Asante':      'zara_asante_learnings.md',
+  'Ayan Raza':        'ayan_raza_learnings.md',
+  'Fatima Diallo':    'fatima_diallo_learnings.md',
+};
+
+// Threshold below which a failure is worth recording as a new learning entry
+const LEARNINGS_SCORE_THRESHOLD = 60;
+
+async function appendAgentLearning(
+  agentName: string,
+  score: number,
+  errors: Array<{ type: string; description: string; example?: string }>,
+  storyId: string
+): Promise<void> {
+  const filename = AGENT_LEARNINGS_MAP[agentName];
+  if (!filename) return;
+
+  const filePath = join(LEARNINGS_DIR, filename);
+  const timestamp = new Date().toISOString().slice(0, 10);
+  const errorSummary = errors.slice(0, 3).map(e => `${e.type}: ${e.description}`).join('; ');
+
+  const entry = `
+### [Live — ${timestamp}] Quality gate: score=${score}/100
+
+**Story:** \`${storyId}\`
+**Errors detected:** ${errorSummary || 'none named'}
+
+**Pattern flagged:** Score below ${LEARNINGS_SCORE_THRESHOLD} after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
+`;
+
+  try {
+    const existing = await readFile(filePath, 'utf8');
+    const marker = '<!-- HEARTBEAT_APPEND_BELOW -->';
+    if (existing.includes(marker)) {
+      const updated = existing.replace(marker, entry + marker);
+      await writeFile(filePath, updated, 'utf8');
+    } else {
+      await appendFile(filePath, entry, 'utf8');
+    }
+  } catch (_) {
+    // Non-critical — file may not exist for all agents
+  }
+}
+
 function ensureAgentUser(db: Database, agentId: string, agentName: string): void {
   const existing = db.query('SELECT id FROM users WHERE id = ?').get(agentId);
   if (!existing) {
@@ -532,13 +593,13 @@ function getSegmentsForContext(db: Database, storyId: string): Segment[] {
 
 function insertSegment(
   db: Database, storyId: string, agentId: string,
-  content: string, tokensUsed: number, modelUsed: string
+  content: string, tokensUsed: number, modelUsed: string, qualityScore?: number
 ): string {
   const id = `contrib_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   db.run(
-    `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, tokens_spent, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    [id, storyId, agentId, content, modelUsed, content.length, tokensUsed]
+    `INSERT INTO contributions (id, story_id, author_id, content, model_used, character_count, tokens_spent, quality_score, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [id, storyId, agentId, content, modelUsed, content.length, tokensUsed, qualityScore ?? 70]
   );
   db.run(`UPDATE stories SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [storyId]);
   // Award STORY tokens for segment
@@ -844,11 +905,16 @@ export async function runHeartbeat(): Promise<void> {
           logErrors(db, agent.id, chosenStory.id, qualityReport.errors);
         }
 
+        // Persistent learnings — append to agent's AGENT_LEARNINGS.md if score is poor
+        if (qualityReport.score < LEARNINGS_SCORE_THRESHOLD) {
+          appendAgentLearning(agent.name, qualityReport.score, qualityReport.errors, chosenStory.id).catch(() => {});
+        }
+
         const finalContent = qualityReport.fixed || result.content.trim();
         const modelUsed = result.provider ?? 'nemotron-super';
 
         // Persist
-        insertSegment(db, chosenStory.id, agent.id, finalContent, result.tokensUsed, modelUsed);
+        insertSegment(db, chosenStory.id, agent.id, finalContent, result.tokensUsed, modelUsed, qualityReport.score);
         segmentsWritten++;
         const newSegCount = chosenStory.segment_count + 1;
 
