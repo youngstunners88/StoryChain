@@ -8,6 +8,7 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { llmService } from './llmService.js';
 import { config } from '../config/index.js';
 import { validateContent, buildCorrectionInstruction } from './qualityGate.js';
+import { awardTokens, slashTokens, rewardStoryCompletion, recordQualityReward } from './blockchainService.js';
 import {
   logErrors,
   getRecentErrors,
@@ -391,7 +392,7 @@ function getActiveStories(db: Database): ActiveStory[] {
     LEFT JOIN writer_profiles wp ON wp.user_id = s.author_id
     WHERE s.is_completed = 0
       AND (
-        s.updated_at < datetime('now', '-8 minutes')
+        s.updated_at < datetime('now', '-3 minutes')
         OR (SELECT COUNT(*) FROM contributions WHERE story_id = s.id) = 0
       )
     ORDER BY
@@ -421,11 +422,15 @@ function insertSegment(
     [id, storyId, agentId, content, modelUsed, content.length, tokensUsed]
   );
   db.run(`UPDATE stories SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [storyId]);
+  // Award STORY tokens for segment
+  awardTokens(agentId, 10, 'Segment published', storyId).catch(() => {});
   return id;
 }
 
 function markStoryCompleted(db: Database, storyId: string): void {
   db.run(`UPDATE stories SET is_completed = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [storyId]);
+  // Award completion bonus to all contributors
+  rewardStoryCompletion(storyId).catch(() => {});
 }
 
 function createNewStory(db: Database, agentId: string, style: string): string {
@@ -638,6 +643,8 @@ export async function runHeartbeat(): Promise<void> {
 
       // Each agent selects the story it most wants to contribute to
       const claimedStoryIds = new Set<string>();
+      let segmentsWritten = 0;
+      let providerFailures = 0;
 
       for (const agent of agents) {
         // Filter out already-claimed stories for this cycle
@@ -650,6 +657,9 @@ export async function runHeartbeat(): Promise<void> {
 
         claimedStoryIds.add(chosenStory.id);
         ensureAgentUser(db, agent.id, agent.name);
+
+        // Brief stagger between agents to avoid TPM collisions on shared Groq org
+        await new Promise(r => setTimeout(r, 800));
 
         // Optional research cycle (runs ~every 12 hours per agent)
         if (shouldRunResearchCycle(db, agent.id)) {
@@ -666,36 +676,11 @@ export async function runHeartbeat(): Promise<void> {
         // Build prompt
         const prompt = buildPrompt(agent, chosenStory, segments, errorBlock, reflectionBlock);
 
-        // Generate — parallel race if a second provider is available
+        // Generate — single sequential call using round-robin key rotation
+        // (parallel racing was removed: it doubles rate-limit consumption for no benefit)
         let result;
         try {
-          const hasGroq = !!process.env.GROQ_API_KEY;
-          const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
-          const canParallel = hasGroq && hasOpenRouter;
-
-          if (canParallel) {
-            // Race two providers — quality gate picks the winner
-            const [r1, r2] = await Promise.allSettled([
-              llmService.generateContent(prompt),
-              llmService.generateContent(prompt, { preferProvider: 'groq' }),
-            ]);
-            const candidates = [r1, r2]
-              .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled' && !!r.value?.content?.trim())
-              .map(r => r.value);
-
-            if (candidates.length === 0) throw new Error('Both parallel providers failed');
-
-            if (candidates.length === 1) {
-              result = candidates[0];
-            } else {
-              // Pick higher quality
-              const scores = candidates.map(c => validateContent(c.content).score);
-              result = scores[0] >= scores[1] ? candidates[0] : candidates[1];
-              await syslog(`${agent.name}: parallel race — scores ${scores[0]} vs ${scores[1]}, winner: ${result.provider}`);
-            }
-          } else {
-            result = await llmService.generateContent(prompt);
-          }
+          result = await llmService.generateContent(prompt);
         } catch (err) {
           await syslog(`ERROR generating for story ${chosenStory.id}: ${err} — skipping`);
           continue;
@@ -703,6 +688,7 @@ export async function runHeartbeat(): Promise<void> {
 
         if (!result?.content?.trim()) {
           await syslog(`ERROR: No content returned for story ${chosenStory.id}`);
+          providerFailures++;
           continue;
         }
 
@@ -736,6 +722,7 @@ export async function runHeartbeat(): Promise<void> {
 
         // Persist
         insertSegment(db, chosenStory.id, agent.id, finalContent, result.tokensUsed, modelUsed);
+        segmentsWritten++;
         const newSegCount = chosenStory.segment_count + 1;
 
         await syslog(
@@ -745,6 +732,9 @@ export async function runHeartbeat(): Promise<void> {
         );
 
         await updateAgentStats(agent, result.tokensUsed);
+
+        // STORY token quality rewards/slashes — non-blocking
+        recordQualityReward(agent.id, qualityReport.score, chosenStory.id).catch(() => {});
 
         // Bestseller Radar — run every 4 segments, non-blocking
         if (newSegCount % 4 === 0) {
@@ -763,6 +753,13 @@ export async function runHeartbeat(): Promise<void> {
           await syslog(`Spawned new story=${newStoryId} (${agent.persona.style}) by ${agent.name}`);
         }
       }
+      // Budget conservation: if all agents hit exhausted providers, slow down
+      if (providerFailures > 0 && segmentsWritten === 0) {
+        recordHeartbeatExhausted();
+      } else if (segmentsWritten > 0) {
+        recordHeartbeatSuccess();
+      }
+
     } finally {
       db.close();
     }
@@ -870,14 +867,51 @@ async function runEditorOutreach(): Promise<void> {
 
 // ─── Loop starter ─────────────────────────────────────────────────────────────
 
+// ─── Budget conservation tracker ──────────────────────────────────────────────
+// If all providers are exhausted N times in a row, slow down automatically.
+let _consecutiveExhaustedRuns = 0;
+const CONSERVATION_THRESHOLD = 3;          // exhausted runs before slowing down
+const CONSERVATION_INTERVAL  = 30 * 60 * 1000; // 30 min when in conservation
+
+export function recordHeartbeatExhausted(): void {
+  _consecutiveExhaustedRuns++;
+  if (_consecutiveExhaustedRuns >= CONSERVATION_THRESHOLD) {
+    console.warn(`[HEARTBEAT] Budget conservation mode — all providers exhausted ${_consecutiveExhaustedRuns}× in a row. Backing off to 30 min.`);
+  }
+}
+
+export function recordHeartbeatSuccess(): void {
+  _consecutiveExhaustedRuns = 0;
+}
+
 export function startHeartbeatLoop(): void {
-  const intervalMs = config.isProduction ? 5 * 60 * 1000 : 60 * 1000;
-  const label = config.isProduction ? '5 minutes' : '60 seconds';
-  console.log(`[HEARTBEAT] Autonomous loop starting — interval: ${label}`);
-  runHeartbeat().catch(err => console.error('[HEARTBEAT] Startup run error:', err));
-  setInterval(() => {
-    runHeartbeat().catch(err => console.error('[HEARTBEAT] Interval run error:', err));
-  }, intervalMs);
+  // Priority: env var → production default (5 min) → development default (10 min)
+  const envMs = parseInt(process.env.HEARTBEAT_INTERVAL_MS || '', 10);
+  const baseIntervalMs = !isNaN(envMs) && envMs > 0
+    ? envMs
+    : (config.isProduction ? 5 * 60 * 1000 : 10 * 60 * 1000);
+
+  const label = `${Math.round(baseIntervalMs / 60000)} minutes (env: HEARTBEAT_INTERVAL_MS=${process.env.HEARTBEAT_INTERVAL_MS || 'unset'})`;
+  console.log(`[HEARTBEAT] Autonomous loop starting — base interval: ${label}`);
+
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  const scheduleNext = () => {
+    // In conservation mode, stretch the interval
+    const effectiveMs = _consecutiveExhaustedRuns >= CONSERVATION_THRESHOLD
+      ? CONSERVATION_INTERVAL
+      : baseIntervalMs;
+
+    timer = setTimeout(async () => {
+      await runHeartbeat().catch(err => console.error('[HEARTBEAT] Interval run error:', err));
+      scheduleNext();
+    }, effectiveMs);
+  };
+
+  // Run immediately on startup, then schedule
+  runHeartbeat()
+    .then(() => scheduleNext())
+    .catch(err => { console.error('[HEARTBEAT] Startup run error:', err); scheduleNext(); });
 
   // Editor outreach — every 3 hours
   const editorInterval = 3 * 60 * 60 * 1000;

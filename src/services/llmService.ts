@@ -38,32 +38,155 @@ interface ErrorContext {
 }
 
 // ─── Provider chain (priority order) ─────────────────────────────────────────
+// Free tier daily limits (approx):
+//   Groq:        14,400 req/day  (Llama 3.3 70B — fast, high quality)
+//   Cerebras:    ~1,000 req/day  (Llama 3.1 70B — ultra fast)
+//   OpenRouter:   2,000 req/day  (various free models)
+//   HuggingFace:  ~500 req/day   (small models)
+//   Together AI:  paid, but cheap ($0.0002/1k tokens)
+
+// ─── Groq entries — 12 keys × 2 models = 24 entries, ~1.2M tokens/day total ──
+// Round-robin index rotates across keys so no single key gets hammered
+const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
+const GROQ_KEYS = [
+  'GROQ_API_KEY', 'GROQ_API_KEY_2', 'GROQ_API_KEY_3', 'GROQ_API_KEY_4',
+  'GROQ_API_KEY_5', 'GROQ_API_KEY_6', 'GROQ_API_KEY_7', 'GROQ_API_KEY_8',
+  'GROQ_API_KEY_9', 'GROQ_API_KEY_10', 'GROQ_API_KEY_11', 'GROQ_API_KEY_12',
+];
+const GROQ_ENTRIES: ProviderDef[] = GROQ_KEYS.flatMap((envKey, i) => [
+  { name: `groq-${i+1}-llama`,   endpoint: GROQ_ENDPOINT, modelId: 'llama-3.3-70b-versatile', apiKeyEnv: envKey, callType: 'openai_compat' as const, isFree: true },
+  { name: `groq-${i+1}-llama8b`, endpoint: GROQ_ENDPOINT, modelId: 'llama-3.1-8b-instant',    apiKeyEnv: envKey, callType: 'openai_compat' as const, isFree: true },
+]);
+
+// ─── Gemini entries — 5 keys × 2 models = 10 entries, ~7,500 req/day total ──
+// Google AI Studio free tier: 1,500 req/day per key — OpenAI-compatible endpoint
+const GEMINI_ENDPOINT = 'https://generativelanguage.googleapis.com/v1beta/openai/chat/completions';
+const GEMINI_KEYS = [
+  'GOOGLE_API_KEY', 'GOOGLE_API_KEY_2', 'GOOGLE_API_KEY_3',
+  'GOOGLE_API_KEY_4', 'GOOGLE_API_KEY_5',
+];
+const GEMINI_ENTRIES: ProviderDef[] = GEMINI_KEYS.flatMap((envKey, i) => [
+  { name: `gemini-${i+1}-flash`,     endpoint: GEMINI_ENDPOINT, modelId: 'gemini-2.5-flash',    apiKeyEnv: envKey, callType: 'openai_compat' as const, isFree: true },
+  { name: `gemini-${i+1}-flash-lite`, endpoint: GEMINI_ENDPOINT, modelId: 'gemini-2.0-flash-lite-001', apiKeyEnv: envKey, callType: 'openai_compat' as const, isFree: true },
+]);
 
 const PROVIDER_CHAIN: ProviderDef[] = [
+  // ── Tier 1: Groq — 12 keys, round-robin injected at call time ──
+  ...GROQ_ENTRIES,
+  // ── Tier 2: Gemini — 5 keys × 1,500 req/day = 7,500 free req/day ──
+  ...GEMINI_ENTRIES,
+  // ── Tier 3: Cerebras — ultra-fast free inference ──
   {
-    name: 'nemotron-super-free',
+    name: 'cerebras-llama',
+    endpoint: 'https://api.cerebras.ai/v1/chat/completions',
+    modelId: 'llama-3.3-70b',
+    apiKeyEnv: 'CEREBRAS_API_KEY',
+    callType: 'openai_compat',
+    isFree: true,
+  },
+  // ── Tier 4: OpenRouter free models (key A — fresh 2000 req/day) ──
+  // Model IDs verified against live /api/v1/models endpoint March 2026
+  {
+    name: 'openrouter-a-llama70b',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'meta-llama/llama-3.3-70b-instruct:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    callType: 'openrouter',
+    isFree: true,
+  },
+  {
+    name: 'openrouter-a-gemma12b',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'google/gemma-3-12b-it:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    callType: 'openrouter',
+    isFree: true,
+  },
+  {
+    name: 'openrouter-a-mistral24b',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    callType: 'openrouter',
+    isFree: true,
+  },
+  {
+    name: 'openrouter-a-gemma4b',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'google/gemma-3-4b-it:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+    callType: 'openrouter',
+    isFree: true,
+  },
+  {
+    name: 'openrouter-a-nemotron',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
     modelId: 'nvidia/nemotron-3-super-120b-a12b:free',
     apiKeyEnv: 'OPENROUTER_API_KEY',
     callType: 'openrouter',
     isFree: true,
   },
+  // ── Tier 4: OpenRouter key B (backup / resets daily) ──
   {
-    name: 'nemotron-nano-free',
+    name: 'openrouter-b-llama70b',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'nvidia/nemotron-3-nano-30b-a3b:free',
-    apiKeyEnv: 'OPENROUTER_API_KEY',
+    modelId: 'meta-llama/llama-3.3-70b-instruct:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY_2',
     callType: 'openrouter',
     isFree: true,
   },
   {
-    name: 'groq-llama-free',
-    endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    modelId: 'llama-3.3-70b-versatile',
-    apiKeyEnv: 'GROQ_API_KEY',
+    name: 'openrouter-b-gemma12b',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'google/gemma-3-12b-it:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY_2',
+    callType: 'openrouter',
+    isFree: true,
+  },
+  {
+    name: 'openrouter-b-mistral24b',
+    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
+    modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
+    apiKeyEnv: 'OPENROUTER_API_KEY_2',
+    callType: 'openrouter',
+    isFree: true,
+  },
+  // ── Tier 5: HuggingFace (small but free) ──
+  {
+    name: 'hf-llama-free',
+    endpoint: 'https://router.huggingface.co/hf-inference/v1/chat/completions',
+    modelId: 'meta-llama/Llama-3.2-3B-Instruct',
+    apiKeyEnv: 'HUGGINGFACE_ACCESS_TOKEN',
     callType: 'openai_compat',
     isFree: true,
   },
+  // ── Tier 6: Deepseek — very cheap paid ($0.0001/1k tokens), great writer ──
+  {
+    name: 'deepseek-chat',
+    endpoint: 'https://api.deepseek.com/chat/completions',
+    modelId: 'deepseek-chat',
+    apiKeyEnv: 'DEEPSEEK_API_KEY',
+    callType: 'openai_compat',
+    isFree: false,
+  },
+  // ── Tier 7: Together AI ──
+  {
+    name: 'together-1-llama',
+    endpoint: 'https://api.together.xyz/v1/chat/completions',
+    modelId: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    apiKeyEnv: 'TOGETHER_API_KEY',
+    callType: 'openai_compat',
+    isFree: false,
+  },
+  {
+    name: 'together-2-llama',
+    endpoint: 'https://api.together.xyz/v1/chat/completions',
+    modelId: 'meta-llama/Llama-3.3-70B-Instruct-Turbo',
+    apiKeyEnv: 'TOGETHER_API_KEY_2',
+    callType: 'openai_compat',
+    isFree: false,
+  },
+  // ── Tier 7: Paid providers ──
   {
     name: 'anthropic-sonnet',
     endpoint: 'https://api.anthropic.com/v1/messages',
@@ -81,6 +204,48 @@ const PROVIDER_CHAIN: ProviderDef[] = [
     isFree: false,
   },
 ];
+
+// ─── Round-robin rotation trackers ───────────────────────────────────────────
+// Each pool rotates independently so no single key gets hammered first every call
+let groqRROffset  = 0;
+let geminiRROffset = 0;
+
+function buildRotatedChain(preferProvider?: string): ProviderDef[] {
+  // ── Rotate Groq pool (12 keys × 2 models = 24 entries, 2 per key) ──
+  const groq = GROQ_ENTRIES.filter(p => !!process.env[p.apiKeyEnv]);
+  const groqKeyCount = Math.ceil(groq.length / 2);
+  const groqStart = groqRROffset % Math.max(groqKeyCount, 1);
+  groqRROffset = (groqRROffset + 1) % Math.max(groqKeyCount, 1);
+  const rotatedGroq: ProviderDef[] = [];
+  for (let i = 0; i < groqKeyCount; i++) {
+    const ki = (groqStart + i) % groqKeyCount;
+    rotatedGroq.push(...groq.slice(ki * 2, ki * 2 + 2));
+  }
+
+  // ── Rotate Gemini pool (5 keys × 2 models = 10 entries, 2 per key) ──
+  const gemini = GEMINI_ENTRIES.filter(p => !!process.env[p.apiKeyEnv]);
+  const geminiKeyCount = Math.ceil(gemini.length / 2);
+  const geminiStart = geminiRROffset % Math.max(geminiKeyCount, 1);
+  geminiRROffset = (geminiRROffset + 1) % Math.max(geminiKeyCount, 1);
+  const rotatedGemini: ProviderDef[] = [];
+  for (let i = 0; i < geminiKeyCount; i++) {
+    const ki = (geminiStart + i) % geminiKeyCount;
+    rotatedGemini.push(...gemini.slice(ki * 2, ki * 2 + 2));
+  }
+
+  // ── Everything else (Cerebras, OpenRouter, HF, Together, paid) ──
+  const rest = PROVIDER_CHAIN.filter(p => !p.name.startsWith('groq-') && !p.name.startsWith('gemini-'));
+
+  let chain = [...rotatedGroq, ...rotatedGemini, ...rest];
+
+  if (preferProvider) {
+    const preferred = chain.filter(p => p.name.toLowerCase().includes(preferProvider.toLowerCase()));
+    const others    = chain.filter(p => !p.name.toLowerCase().includes(preferProvider.toLowerCase()));
+    chain = [...preferred, ...others];
+  }
+
+  return chain;
+}
 
 // ─── Main service class ───────────────────────────────────────────────────────
 
@@ -114,16 +279,11 @@ class LLMService {
       preferProvider = options.preferProvider;
     }
 
-    // Build provider chain — if preferProvider is set, try that provider first
-    let chain = [...PROVIDER_CHAIN];
-    if (preferProvider) {
-      const preferred = chain.filter(p => p.name.toLowerCase().includes(preferProvider.toLowerCase()));
-      const rest = chain.filter(p => !p.name.toLowerCase().includes(preferProvider.toLowerCase()));
-      chain = [...preferred, ...rest];
-    }
+    // Build rotated provider chain — Groq keys cycle round-robin, preferProvider bubbles up
+    const chain = buildRotatedChain(preferProvider);
 
     for (const provider of chain) {
-      const apiKey = process.env[provider.apiKeyEnv];
+      const apiKey = this.resolveEnvKey(provider.apiKeyEnv);
       if (!apiKey) continue;
 
       try {
@@ -172,7 +332,7 @@ class LLMService {
     maxTokens: number,
     temperature: number
   ): Promise<GenerationResult> {
-    const apiKey = process.env[provider.apiKeyEnv]!;
+    const apiKey = this.resolveEnvKey(provider.apiKeyEnv)!;
     const response = await fetch(provider.endpoint, {
       method: 'POST',
       headers: {
@@ -217,7 +377,7 @@ class LLMService {
     maxTokens: number,
     temperature: number
   ): Promise<GenerationResult> {
-    const apiKey = process.env[provider.apiKeyEnv]!;
+    const apiKey = this.resolveEnvKey(provider.apiKeyEnv)!;
     const response = await fetch(provider.endpoint, {
       method: 'POST',
       headers: {
@@ -260,7 +420,7 @@ class LLMService {
     maxTokens: number,
     temperature: number
   ): Promise<GenerationResult> {
-    const apiKey = process.env[provider.apiKeyEnv]!;
+    const apiKey = this.resolveEnvKey(provider.apiKeyEnv)!;
     const response = await fetch(provider.endpoint, {
       method: 'POST',
       headers: {
@@ -321,6 +481,17 @@ class LLMService {
     const key = process.env[modelConfig.apiKeyEnvVar];
     if (!key) throw new Error(`Missing API key: ${modelConfig.apiKeyEnvVar}`);
     return key;
+  }
+
+  // Resolve key for PROVIDER_CHAIN entries (uses apiKeyEnv, not apiKeyEnvVar)
+  private resolveEnvKey(envVar: string): string | null {
+    switch (envVar) {
+      case 'OPENROUTER_API_KEY': return config.apiKeys.openrouter || process.env.OPENROUTER_API_KEY || null;
+      case 'GROQ_API_KEY':       return config.apiKeys.groq       || process.env.GROQ_API_KEY       || null;
+      case 'OPENAI_API_KEY':     return config.apiKeys.openai     || process.env.OPENAI_API_KEY     || null;
+      case 'ANTHROPIC_API_KEY':  return config.apiKeys.anthropic  || process.env.ANTHROPIC_API_KEY  || null;
+      default:                   return process.env[envVar]       || null;
+    }
   }
 
   async generateForUser(request: LLMRequest, context: ErrorContext): Promise<LLMResponse> {
@@ -477,12 +648,13 @@ class LLMService {
   private isRetryableError(error: unknown): boolean {
     if (!(error instanceof Error)) return false;
     const msg = error.message.toLowerCase();
+    // NOTE: 429 / rate-limit are NOT retried here — the cascade already moves to
+    // the next provider on any thrown error, so retrying the same provider on a
+    // rate-limit just wastes 3 × backoff time before falling through.
     return (
       msg.includes('timeout') ||
       msg.includes('network') ||
       msg.includes('econnreset') ||
-      msg.includes('rate limit') ||
-      msg.includes('429') ||
       msg.includes('503') ||
       msg.includes('502')
     );
@@ -554,11 +726,20 @@ class LLMService {
   }
 
   validateApiKeys(): { key: string; valid: boolean; models: string[] }[] {
+    const env = process.env;
     return [
-      { key: 'OPENROUTER_API_KEY', valid: !!config.apiKeys.openrouter, models: ['nemotron-super', 'nemotron-nano'] },
-      { key: 'GROQ_API_KEY',       valid: !!config.apiKeys.groq,       models: ['llama-3.3-70b', 'llama-3.1', 'gemma-2', 'mixtral-8x7b'] },
-      { key: 'OPENAI_API_KEY',     valid: !!config.apiKeys.openai,     models: ['gpt-4o-mini'] },
-      { key: 'ANTHROPIC_API_KEY',  valid: !!config.apiKeys.anthropic,  models: ['claude-sonnet'] },
+      { key: 'GROQ_API_KEY',            valid: !!(config.apiKeys.groq || env.GROQ_API_KEY),            models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'] },
+      { key: 'GROQ_API_KEY_2',          valid: !!(env.GROQ_API_KEY_2),                                  models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant (key 2)'] },
+      { key: 'GROQ_API_KEY_3',          valid: !!(env.GROQ_API_KEY_3),                                  models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant (key 3)'] },
+      { key: 'GROQ_API_KEY_4',          valid: !!(env.GROQ_API_KEY_4),                                  models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant (key 4)'] },
+      { key: 'GROQ_API_KEY_5',          valid: !!(env.GROQ_API_KEY_5),                                  models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant (key 5)'] },
+      { key: 'CEREBRAS_API_KEY',         valid: !!(env.CEREBRAS_API_KEY),                                models: ['llama-3.3-70b (ultra fast)'] },
+      { key: 'OPENROUTER_API_KEY',       valid: !!(config.apiKeys.openrouter || env.OPENROUTER_API_KEY), models: ['llama-3.1-8b-instruct:free', 'gemma-3-12b-it:free', 'deepseek-r1:free'] },
+      { key: 'OPENROUTER_API_KEY_2',     valid: !!(env.OPENROUTER_API_KEY_2),                            models: ['llama-3.1-8b-instruct:free', 'gemma-3-12b-it:free (backup key)'] },
+      { key: 'TOGETHER_API_KEY',         valid: !!(env.TOGETHER_API_KEY),                                models: ['llama-3.3-70b (cheap paid)'] },
+      { key: 'OPENAI_API_KEY',           valid: !!(config.apiKeys.openai || env.OPENAI_API_KEY),         models: ['gpt-4o-mini'] },
+      { key: 'ANTHROPIC_API_KEY',        valid: !!(config.apiKeys.anthropic || env.ANTHROPIC_API_KEY),   models: ['claude-sonnet'] },
+      { key: 'HUGGINGFACE_ACCESS_TOKEN', valid: !!(env.HUGGINGFACE_ACCESS_TOKEN),                        models: ['llama-3.2-3b (small, free)'] },
     ];
   }
 }
