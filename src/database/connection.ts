@@ -311,6 +311,14 @@ export async function initializeDatabase(): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id, created_at);
   `);
 
+  // Additional indexes added post-audit for performance
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_contributions_author ON contributions(author_id);
+    CREATE INDEX IF NOT EXISTS idx_messages_sender ON messages(sender_id);
+    CREATE INDEX IF NOT EXISTS idx_stories_completed ON stories(is_completed, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_token_transactions_created ON token_transactions(created_at);
+  `);
+
   // Migrations for existing databases (safe to run repeatedly)
   const migrations = [
     `ALTER TABLE stories ADD COLUMN cover_url TEXT`,
@@ -321,6 +329,20 @@ export async function initializeDatabase(): Promise<void> {
     // Phase 10 auth
     `ALTER TABLE users ADD COLUMN password_hash TEXT`,
     `ALTER TABLE users ADD COLUMN role TEXT DEFAULT 'writer'`,
+    // Phase 11 blockchain
+    `ALTER TABLE users ADD COLUMN wallet_address TEXT`,
+    `ALTER TABLE users ADD COLUMN solana_wallet TEXT`,
+    `ALTER TABLE users ADD COLUMN story_token_balance REAL DEFAULT 0`,
+    `ALTER TABLE stories ADD COLUMN mint_address TEXT`,
+    `ALTER TABLE stories ADD COLUMN arweave_uri TEXT`,
+    `ALTER TABLE stories ADD COLUMN mint_tx_signature TEXT`,
+    `ALTER TABLE stories ADD COLUMN minted_at DATETIME`,
+    `ALTER TABLE stories ADD COLUMN bestseller_score INTEGER DEFAULT 0`,
+    `ALTER TABLE stories ADD COLUMN genre TEXT`,
+    `ALTER TABLE stories ADD COLUMN segment_count INTEGER DEFAULT 0`,
+    `ALTER TABLE token_transactions ADD COLUMN tx_hash TEXT`,
+    `ALTER TABLE token_transactions ADD COLUMN chain TEXT DEFAULT 'offchain'`,
+    `ALTER TABLE token_transactions ADD COLUMN wallet_address TEXT`,
   ];
   for (const sql of migrations) {
     try { database.exec(sql); } catch (_) { /* column already exists */ }

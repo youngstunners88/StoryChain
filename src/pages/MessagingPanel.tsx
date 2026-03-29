@@ -8,8 +8,11 @@ import { startListening } from '../services/voiceService';
 
 interface Conversation {
   conversation_id: string;
-  sender_id: string;
-  sender_name: string;
+  partner_id: string;
+  partner_name: string;
+  // legacy compat
+  sender_id?: string;
+  sender_name?: string;
   content: string;
   created_at: string;
   unread_count: number;
@@ -92,10 +95,10 @@ const NewMessageModal: React.FC<{
 
 // ─── MessagingPanel ───────────────────────────────────────────────────────────
 
-export const MessagingPanel: React.FC = () => {
+export const MessagingPanel: React.FC<{ initialPartnerId?: string; initialPartnerName?: string }> = ({ initialPartnerId, initialPartnerName }) => {
   const { fetchWithAuth, penName } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [activePartnerId, setActivePartnerId] = useState<string | null>(null);
+  const [activePartnerId, setActivePartnerId] = useState<string | null>(initialPartnerId ?? null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [compose, setCompose] = useState('');
   const [sending, setSending] = useState(false);
@@ -107,8 +110,10 @@ export const MessagingPanel: React.FC = () => {
   const stopRecordingRef = useRef<(() => void) | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
   const pollRef = useRef<number | null>(null);
+  const threadPollRef = useRef<number | null>(null);
+  const lastMsgCountRef = useRef<number>(0);
 
-  const activeConvoInfo = conversations.find(c => c.sender_id === activePartnerId);
+  const activeConvoInfo = conversations.find(c => c.partner_id === activePartnerId || c.sender_id === activePartnerId);
   const isActiveAgent = activePartnerId?.startsWith('agent_') || activePartnerId?.startsWith('editor_agent_');
 
   const loadConversations = useCallback(async () => {
@@ -133,7 +138,7 @@ export const MessagingPanel: React.FC = () => {
       if (markRead) {
         fetchWithAuth(`/api/messages/${partnerId}/read`, { method: 'PATCH' }).catch(() => {});
         setConversations(prev => prev.map(c =>
-          c.sender_id === partnerId ? { ...c, unread_count: 0 } : c
+          (c.partner_id === partnerId || c.sender_id === partnerId) ? { ...c, unread_count: 0 } : c
         ));
       }
     } catch { /* silent */ }
@@ -145,6 +150,45 @@ export const MessagingPanel: React.FC = () => {
     pollRef.current = window.setInterval(loadConversations, 15000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [loadConversations]);
+
+  // Poll active thread every 2.5s for new messages (agent replies appear instantly)
+  useEffect(() => {
+    if (threadPollRef.current) clearInterval(threadPollRef.current);
+    if (!activePartnerId) return;
+    lastMsgCountRef.current = messages.length;
+    threadPollRef.current = window.setInterval(async () => {
+      if (!activePartnerId) return;
+      try {
+        const r = await fetchWithAuth(`/api/messages/${activePartnerId}`);
+        if (r.ok) {
+          const d = await r.json();
+          const newMsgs: Message[] = d.messages ?? d ?? [];
+          if (newMsgs.length !== lastMsgCountRef.current) {
+            lastMsgCountRef.current = newMsgs.length;
+            setMessages(newMsgs);
+          }
+        }
+      } catch { /* silent */ }
+    }, 2500);
+    return () => { if (threadPollRef.current) clearInterval(threadPollRef.current); };
+  }, [activePartnerId, fetchWithAuth]);
+
+  // If navigated directly with a partner ID, add a placeholder conversation so the header renders
+  useEffect(() => {
+    if (!initialPartnerId) return;
+    setConversations(prev => {
+      if (prev.find(c => c.partner_id === initialPartnerId || c.sender_id === initialPartnerId)) return prev;
+      const placeholder: Conversation = {
+        conversation_id: initialPartnerId,
+        partner_id: initialPartnerId,
+        partner_name: initialPartnerName || initialPartnerId,
+        content: '',
+        created_at: new Date().toISOString(),
+        unread_count: 0,
+      };
+      return [placeholder, ...prev];
+    });
+  }, [initialPartnerId]);
 
   useEffect(() => {
     if (activePartnerId) loadThread(activePartnerId);
@@ -158,6 +202,10 @@ export const MessagingPanel: React.FC = () => {
 
   const handleSelectConvo = (partnerId: string) => {
     setActivePartnerId(partnerId);
+    // Mark as read immediately in local state
+    setConversations(prev => prev.map(c =>
+      (c.partner_id === partnerId || c.sender_id === partnerId) ? { ...c, unread_count: 0 } : c
+    ));
   };
 
   const handleToggleMic = () => {
@@ -206,7 +254,7 @@ export const MessagingPanel: React.FC = () => {
     finally { setSending(false); }
   };
 
-  const activeConvo = conversations.find(c => c.sender_id === activePartnerId);
+  const activeConvo = conversations.find(c => c.partner_id === activePartnerId || c.sender_id === activePartnerId);
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-8">
@@ -251,11 +299,13 @@ export const MessagingPanel: React.FC = () => {
           ) : (
             <div className="py-2">
               {conversations.map(c => {
-                const active = activePartnerId === c.sender_id;
-                const color = nameColor(c.sender_name);
+                const pid = c.partner_id ?? c.sender_id ?? '';
+                const pname = c.partner_name ?? c.sender_name ?? pid;
+                const active = activePartnerId === pid;
+                const color = nameColor(pname);
                 return (
                   <button key={c.conversation_id}
-                    onClick={() => handleSelectConvo(c.sender_id)}
+                    onClick={() => handleSelectConvo(pid)}
                     style={{
                       width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                       padding: '10px 14px', background: active ? 'rgba(201,168,76,0.08)' : 'transparent',
@@ -265,11 +315,11 @@ export const MessagingPanel: React.FC = () => {
                     {/* Avatar */}
                     <div className="flex-shrink-0 rounded-full flex items-center justify-center font-bold text-sm"
                       style={{ width: 40, height: 40, background: `${color}22`, border: `2px solid ${color}40`, color }}>
-                      {c.sender_name.charAt(0).toUpperCase()}
+                      {pname.charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between gap-1">
-                        <span className="text-sm font-medium truncate" style={{ color: '#ede6d6' }}>{c.sender_name}</span>
+                        <span className="text-sm font-medium truncate" style={{ color: '#ede6d6' }}>{pname}</span>
                         <span className="text-xs flex-shrink-0" style={{ color: '#4a3f35' }}>{fmtTime(c.created_at)}</span>
                       </div>
                       <p className="text-xs truncate mt-0.5" style={{ color: '#8a7a68' }}>{c.content}</p>
@@ -294,15 +344,21 @@ export const MessagingPanel: React.FC = () => {
               {/* Thread header */}
               <div className="px-5 py-4 flex items-center gap-3 flex-shrink-0"
                 style={{ borderBottom: '1px solid #2a2218', background: '#161210' }}>
-                {activeConvoInfo && (
-                  <>
-                    <div className="rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
-                      style={{ width: 36, height: 36, background: `${nameColor(activeConvoInfo.sender_name)}22`, color: nameColor(activeConvoInfo.sender_name) }}>
-                      {activeConvoInfo.sender_name.charAt(0).toUpperCase()}
-                    </div>
-                    <span className="font-serif font-semibold flex-1" style={{ color: '#ede6d6' }}>{activeConvoInfo.sender_name}</span>
-                  </>
-                )}
+                {(() => {
+                  const headerName = activeConvoInfo
+                    ? (activeConvoInfo.partner_name ?? activeConvoInfo.sender_name ?? activePartnerId)
+                    : (initialPartnerId === activePartnerId ? initialPartnerName : null) ?? activePartnerId;
+                  const color = nameColor(headerName || '');
+                  return (
+                    <>
+                      <div className="rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
+                        style={{ width: 36, height: 36, background: `${color}22`, color }}>
+                        {(headerName || '?').charAt(0).toUpperCase()}
+                      </div>
+                      <span className="font-serif font-semibold flex-1" style={{ color: '#ede6d6' }}>{headerName}</span>
+                    </>
+                  );
+                })()}
                 {/* Voice call button */}
                 <button
                   onClick={() => setShowVoiceCall(true)}
@@ -435,7 +491,7 @@ export const MessagingPanel: React.FC = () => {
       {showVoiceCall && activePartnerId && (
         <VoiceCallModal
           partnerId={activePartnerId}
-          partnerName={activeConvoInfo?.sender_name ?? activePartnerId}
+          partnerName={activeConvoInfo?.partner_name ?? activeConvoInfo?.sender_name ?? initialPartnerName ?? activePartnerId}
           isAgent={!!isActiveAgent}
           onClose={() => setShowVoiceCall(false)}
         />
@@ -447,11 +503,11 @@ export const MessagingPanel: React.FC = () => {
           onStart={partnerId => {
             setActivePartnerId(partnerId);
             // add skeleton conversation if not already present
-            if (!conversations.find(c => c.sender_id === partnerId)) {
+            if (!conversations.find(c => c.partner_id === partnerId || c.sender_id === partnerId)) {
               const fake: Conversation = {
                 conversation_id: partnerId,
-                sender_id: partnerId,
-                sender_name: partnerId,
+                partner_id: partnerId,
+                partner_name: partnerId,
                 content: '',
                 created_at: new Date().toISOString(),
                 unread_count: 0,

@@ -202,7 +202,11 @@ export async function saveApiKey(c: Context) {
     const { key, value } = await c.req.json();
 
     // Validate key name
-    const validKeys = ['OPENROUTER_API_KEY', 'GROQ_API_KEY', 'GOOGLE_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'];
+    const validKeys = [
+      'OPENROUTER_API_KEY', 'OPENROUTER_API_KEY_2',
+      'GROQ_API_KEY', 'CEREBRAS_API_KEY', 'TOGETHER_API_KEY',
+      'GOOGLE_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY',
+    ];
     if (!validKeys.includes(key)) {
       throw createValidationError('Invalid API key name', 'key', {
         validKeys,
@@ -210,10 +214,23 @@ export async function saveApiKey(c: Context) {
       });
     }
 
-    // Validate key format (basic checks)
+    // Validate key format — must match known provider prefixes or be a reasonable length
+    const KEY_PATTERNS: Record<string, RegExp> = {
+      OPENROUTER_API_KEY:   /^sk-or-v1-[a-zA-Z0-9]{60,}$/,
+      OPENROUTER_API_KEY_2: /^sk-or-v1-[a-zA-Z0-9]{60,}$/,
+      GROQ_API_KEY:         /^gsk_[a-zA-Z0-9]{50,}$/,
+      ANTHROPIC_API_KEY:    /^sk-ant-[a-zA-Z0-9\-_]{80,}$/,
+      OPENAI_API_KEY:       /^sk-[a-zA-Z0-9]{40,}$/,
+    };
     if (!value || value.length < 10) {
       throw createValidationError('Invalid API key format', 'value', {
         hint: 'Key must be at least 10 characters',
+      });
+    }
+    const pattern = KEY_PATTERNS[key];
+    if (pattern && !pattern.test(value.trim())) {
+      throw createValidationError(`Invalid format for ${key}`, 'value', {
+        hint: `Key does not match expected format for ${key}`,
       });
     }
 
@@ -287,6 +304,12 @@ export async function createStory(c: Context) {
 
     if (!content?.trim()) {
       throw createValidationError('Content is required', 'content');
+    }
+    if (content.length > 50000) {
+      throw createValidationError('Content must be under 50,000 characters', 'content', {
+        maxLength: 50000,
+        currentLength: content.length,
+      });
     }
 
     // Validate model (default to kimi-k2.5)

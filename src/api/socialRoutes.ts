@@ -292,10 +292,13 @@ export async function addContribution(c: Context) {
 
     const database = await getDb();
 
-    // Verify story exists
-    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId);
+    // Verify story exists and is not completed
+    const story = database.query('SELECT * FROM stories WHERE id = ?').get(storyId) as any;
     if (!story) {
       return c.json({ error: 'Story not found' }, 404);
+    }
+    if (story.is_completed) {
+      return c.json({ error: 'Story is completed and no longer accepting contributions' }, 409);
     }
 
     // Determine author
@@ -394,16 +397,23 @@ export async function addComment(c: Context) {
     const story = database.query('SELECT id FROM stories WHERE id = ?').get(storyId);
     if (!story) return c.json({ error: 'Story not found' }, 404);
 
-    // Derive author from session or header
-    const sessionId = c.req.header('x-session-id') || `anon_${Math.random().toString(36).substr(2, 9)}`;
-    const displayName = authorName?.trim() || 'Anonymous';
-    const authorId = 'user_' + sessionId.slice(-16).padStart(16, '0');
+    // Use authenticated user if available, otherwise derive from session header
+    const auth = await requireAuth(c);
+    let authorId: string;
+    let displayName: string;
 
-    const userExists = database.query('SELECT 1 FROM users WHERE id = ?').get(authorId);
-    if (!userExists) {
+    if (auth) {
+      authorId = auth.userId;
+      const dbUser = database.query('SELECT username FROM users WHERE id = ?').get(authorId) as any;
+      displayName = dbUser?.username ?? authorName?.trim() ?? 'Anonymous';
+    } else {
+      const sessionId = c.req.header('x-session-id') || `anon_${Math.random().toString(36).substr(2, 9)}`;
+      displayName = authorName?.trim() || 'Anonymous';
+      authorId = 'anon_' + sessionId.slice(-16).padStart(16, '0');
+      // INSERT OR IGNORE to avoid UNIQUE constraint crashes on username
       database.run(
-        'INSERT INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
-        [authorId, displayName, `${authorId}@storychain.local`, 'nemotron-super']
+        'INSERT OR IGNORE INTO users (id, username, email, preferred_model) VALUES (?, ?, ?, ?)',
+        [authorId, `${displayName}_${authorId.slice(-6)}`, `${authorId}@storychain.local`, 'nemotron-super']
       );
     }
 

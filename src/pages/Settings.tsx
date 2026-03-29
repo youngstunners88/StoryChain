@@ -17,10 +17,13 @@ export const Settings: React.FC = () => {
   const [savingKey, setSavingKey] = useState<string | null>(null);
 
   const providers = [
-    { key: 'OPENROUTER_API_KEY', label: 'OpenRouter', models: 'Nemotron, Kimi, Qwen, Reka', url: 'https://openrouter.ai/keys' },
-    { key: 'GROQ_API_KEY',       label: 'Groq',        models: 'Llama 3.3, Gemma 2, Mixtral', url: 'https://console.groq.com/keys' },
-    { key: 'ANTHROPIC_API_KEY',  label: 'Anthropic',   models: 'Claude Sonnet', url: 'https://console.anthropic.com/keys' },
-    { key: 'OPENAI_API_KEY',     label: 'OpenAI',      models: 'GPT-4o Mini', url: 'https://platform.openai.com/api-keys' },
+    { key: 'GROQ_API_KEY',            label: 'Groq',               models: 'Llama 3.3 70B, Gemma 2 — 14,400 free/day',  url: 'https://console.groq.com/keys',               tier: 'free' },
+    { key: 'CEREBRAS_API_KEY',        label: 'Cerebras',           models: 'Llama 3.3 70B — ultra fast, free tier',      url: 'https://cloud.cerebras.ai',                   tier: 'free' },
+    { key: 'OPENROUTER_API_KEY',      label: 'OpenRouter',         models: 'Qwen3, Mistral Nemo, Nemotron — 2,000 free/day', url: 'https://openrouter.ai/keys',              tier: 'free' },
+    { key: 'OPENROUTER_API_KEY_2',    label: 'OpenRouter (2nd key)', models: 'Secondary OpenRouter account — +2,000 free/day', url: 'https://openrouter.ai/keys',            tier: 'free' },
+    { key: 'TOGETHER_API_KEY',        label: 'Together AI',        models: 'Llama 3.3 70B — $25 free credit',            url: 'https://api.together.xyz',                    tier: 'paid' },
+    { key: 'ANTHROPIC_API_KEY',       label: 'Anthropic',          models: 'Claude Sonnet — paid',                       url: 'https://console.anthropic.com/keys',          tier: 'paid' },
+    { key: 'OPENAI_API_KEY',          label: 'OpenAI',             models: 'GPT-4o Mini — paid',                         url: 'https://platform.openai.com/api-keys',        tier: 'paid' },
   ];
 
   useEffect(() => {
@@ -198,7 +201,7 @@ export const Settings: React.FC = () => {
           </div>
         ) : (
           <div style={{ background: '#161210' }}>
-            {providers.map(({ key, label, models, url }, i) => {
+            {providers.map(({ key, label, models, url, tier }, i) => {
               const configured = keyStatus[key] ?? false;
               const isOpen = openProvider === key;
               const isSaving = savingKey === key;
@@ -207,8 +210,11 @@ export const Settings: React.FC = () => {
                   {/* Provider row */}
                   <div className="flex items-center justify-between px-6 py-4">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-medium" style={{ color: '#ede6d6' }}>{label}</span>
+                        {tier === 'free' && (
+                          <span className="text-xs px-1.5 py-0.5 rounded-md" style={{ background: 'rgba(52,211,153,0.12)', border: '1px solid rgba(52,211,153,0.3)', color: '#34d399' }}>FREE</span>
+                        )}
                         {configured
                           ? <span className="text-xs flex items-center gap-1" style={{ color: '#34d399' }}>✓ Active</span>
                           : <span className="text-xs" style={{ color: '#4a3f35' }}>Not configured</span>

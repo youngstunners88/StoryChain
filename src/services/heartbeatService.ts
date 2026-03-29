@@ -23,6 +23,24 @@ import { analyzeStory } from './bestsellerService.js';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface TrinityDNA {
+  openclaw: number;  // 0–1: generative force — starts arcs, takes risks
+  hermes:   number;  // 0–1: connective force — bridges threads, responds
+  zeroclaw: number;  // 0–1: refinement force — applies craft, quality-gates
+}
+
+// Dominant role based on which Trinity weight is highest
+type TrinityRole = 'openclaw' | 'hermes' | 'zeroclaw';
+
+function getTrinityRole(dna: TrinityDNA): TrinityRole {
+  if (dna.openclaw >= dna.hermes && dna.openclaw >= dna.zeroclaw) return 'openclaw';
+  if (dna.hermes   >= dna.openclaw && dna.hermes   >= dna.zeroclaw) return 'hermes';
+  return 'zeroclaw';
+}
+
+// Default neutral DNA for agents without trinity_dna in their YAML
+const DEFAULT_TRINITY: TrinityDNA = { openclaw: 0.34, hermes: 0.33, zeroclaw: 0.33 };
+
 interface AgentProfile {
   id: string;
   name: string;
@@ -42,6 +60,7 @@ interface AgentProfile {
     principles?: string[];
     research_interests?: string[];
   };
+  trinity: TrinityDNA;
   _filePath: string;
 }
 
@@ -206,41 +225,72 @@ interface StoryScore {
   score: number;
 }
 
+// ─── Trinity-weighted scoring ─────────────────────────────────────────────────
+// Each force unlocks different bonuses — the DNA determines which situations
+// attract each agent, creating natural specialisation without hard rules.
+
 function scoreStoryForAgent(
   agent: AgentProfile,
   story: ActiveStory,
   agentPriorContribCount: number,
-  lastContribAuthorId: string | null
+  lastContribAuthorId: string | null,
+  recentAvgQuality: number   // 0–100, average quality of last 3 segments
 ): number {
   let score = 0;
+  const dna = agent.trinity;
+  const role = getTrinityRole(dna);
   const agentGenre = agent.persona.style.toLowerCase();
   const storyGenre = (story.genre ?? '').toLowerCase();
+  const seg = story.segment_count;
 
-  // Genre affinity (0–40)
+  // ── Genre affinity (0–40) — unchanged ──────────────────────────────────────
   if (agentGenre === storyGenre || agentGenre === 'default' || storyGenre === 'default') {
     score += 40;
   } else if ((GENRE_AFFINITY[agentGenre] ?? []).includes(storyGenre)) {
     score += 28;
   } else {
-    score += 8; // cross-genre contribution still allowed
+    score += 8;
   }
 
-  // Arc position opportunity (0–25)
-  const seg = story.segment_count;
-  if (seg === 0) score += 25; // fresh story — high desire to open
-  else if (seg === 11) score += 25; // finale — every agent wants to close
-  else if (seg >= 8 && seg <= 10) score += 20; // ordeal/climax zone
-  else if (seg >= 3 && seg <= 5) score += 15; // escalation
-  else score += 8;
+  // ── Arc position (0–25) — Trinity-modulated ─────────────────────────────────
+  if (seg === 0) {
+    // Arc start: Openclaw craves this. Hermes and Zeroclaw less so.
+    score += Math.round(25 * (dna.openclaw * 1.6 + dna.hermes * 0.7 + dna.zeroclaw * 0.7));
+  } else if (seg === 11) {
+    // Finale: Zeroclaw wants to close with craft. Openclaw too.
+    score += Math.round(25 * (dna.openclaw * 1.2 + dna.hermes * 0.8 + dna.zeroclaw * 1.4));
+  } else if (seg >= 8 && seg <= 10) {
+    // Climax/ordeal: Zeroclaw and Openclaw both strong here
+    score += Math.round(20 * (dna.openclaw * 1.3 + dna.hermes * 0.7 + dna.zeroclaw * 1.4));
+  } else if (seg >= 3 && seg <= 5) {
+    // Escalation: Hermes bridges early threads; Openclaw pushes conflict
+    score += Math.round(15 * (dna.openclaw * 1.2 + dna.hermes * 1.4 + dna.zeroclaw * 0.8));
+  } else {
+    // Mid-story: Hermes is the engine here — connecting beats
+    score += Math.round(8  * (dna.openclaw * 0.8 + dna.hermes * 1.6 + dna.zeroclaw * 0.8));
+  }
 
-  // Staleness bonus (0–20) — prefer stories not recently touched
+  // ── Staleness (0–20) — Openclaw is attracted to stagnant stories ────────────
   const hoursSince = (Date.now() - new Date(story.updated_at).getTime()) / 3_600_000;
-  score += Math.min(20, Math.floor(hoursSince * 3));
+  const staleBase = Math.min(20, Math.floor(hoursSince * 3));
+  // Openclaw rescues dead stories. Hermes prefers active threads.
+  const staleMultiplier = role === 'openclaw' ? 1.5 : role === 'hermes' ? 0.6 : 1.0;
+  score += Math.round(staleBase * staleMultiplier);
 
-  // Diversity bonus (0–15) — avoid domination by one agent
+  // ── Diversity (0–15) — unchanged ───────────────────────────────────────────
   if (lastContribAuthorId !== agent.id) score += 15;
-  if (agentPriorContribCount === 0) score += 5; // haven't contributed yet — fresh perspective
-  else if (agentPriorContribCount >= 5) score -= 20; // avoid monopoly
+  if (agentPriorContribCount === 0) score += 5;
+  else if (agentPriorContribCount >= 5) score -= 20;
+
+  // ── Quality rescue (0–20) — Zeroclaw hunts low-quality stories ─────────────
+  // When recent quality is poor, Zeroclaw gets drawn in to fix it
+  if (recentAvgQuality < 50) {
+    score += Math.round(20 * dna.zeroclaw * 2.0);
+  } else if (recentAvgQuality < 70) {
+    score += Math.round(10 * dna.zeroclaw * 1.5);
+  }
+  // Openclaw is repelled by broken stories (let Zeroclaw fix first)
+  if (recentAvgQuality < 40 && role === 'openclaw') score -= 10;
 
   return score;
 }
@@ -260,9 +310,17 @@ function selectStoryForAgent(
       `SELECT COUNT(*) as count FROM contributions WHERE story_id = ? AND author_id = ?`
     ).get(story.id, agent.id))?.count ?? 0;
 
+    // Recent quality average — last 3 segments (for Zeroclaw rescue scoring)
+    const recentSegs = db.query<{ quality_score: number }, [string]>(
+      `SELECT quality_score FROM segments WHERE story_id = ? ORDER BY created_at DESC LIMIT 3`
+    ).all(story.id);
+    const recentAvgQuality = recentSegs.length > 0
+      ? recentSegs.reduce((s, r) => s + (r.quality_score ?? 70), 0) / recentSegs.length
+      : 70;
+
     return {
       story,
-      score: scoreStoryForAgent(agent, story, contribCount, lastContrib?.author_id ?? null),
+      score: scoreStoryForAgent(agent, story, contribCount, lastContrib?.author_id ?? null, recentAvgQuality),
     };
   });
 
@@ -323,6 +381,11 @@ async function loadAgents(): Promise<AgentProfile[]> {
           },
           identity: data.identity ?? {},
           craft: data.craft ?? {},
+          trinity: {
+            openclaw: data.trinity_dna?.openclaw ?? DEFAULT_TRINITY.openclaw,
+            hermes:   data.trinity_dna?.hermes   ?? DEFAULT_TRINITY.hermes,
+            zeroclaw: data.trinity_dna?.zeroclaw ?? DEFAULT_TRINITY.zeroclaw,
+          },
           _filePath: filePath,
         });
       }
@@ -367,8 +430,64 @@ function getDatabase(): Database {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS openclaw_crashes (
+      story_id   TEXT NOT NULL,
+      agent_id   TEXT NOT NULL,
+      reason     TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (story_id)
+    );
+    CREATE TABLE IF NOT EXISTS hermes_debug_reports (
+      id         TEXT PRIMARY KEY,
+      story_id   TEXT NOT NULL,
+      hermes_name TEXT NOT NULL,
+      report     TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
   return db;
+}
+
+// ─── Openclaw crash tracking ──────────────────────────────────────────────────
+
+function flagOpenclawCrash(db: Database, storyId: string, agentId: string, reason: string): void {
+  db.run(
+    `INSERT OR REPLACE INTO openclaw_crashes (story_id, agent_id, reason, created_at)
+     VALUES (?, ?, ?, CURRENT_TIMESTAMP)`,
+    [storyId, agentId, reason]
+  );
+}
+
+function getOpenclawCrashes(db: Database): Array<{ storyId: string; agentId: string; reason: string }> {
+  return db.query<{ story_id: string; agent_id: string; reason: string }, []>(
+    `SELECT story_id, agent_id, reason FROM openclaw_crashes
+     WHERE created_at > datetime('now', '-2 hours')`
+  ).all().map(r => ({ storyId: r.story_id, agentId: r.agent_id, reason: r.reason }));
+}
+
+function clearOpenclawCrash(db: Database, storyId: string): void {
+  db.run(`DELETE FROM openclaw_crashes WHERE story_id = ?`, [storyId]);
+}
+
+// ─── Hermes debug report store/retrieve ───────────────────────────────────────
+
+function saveHermesDebugReport(db: Database, storyId: string, hermesName: string, report: string): void {
+  const id = `hermes_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
+  db.run(
+    `INSERT OR REPLACE INTO hermes_debug_reports (id, story_id, hermes_name, report, created_at)
+     VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+    [id, storyId, hermesName, report]
+  );
+}
+
+function getHermesDebugReport(db: Database, storyId: string): string | null {
+  const row = db.query<{ report: string; hermes_name: string }, [string]>(
+    `SELECT report, hermes_name FROM hermes_debug_reports
+     WHERE story_id = ?
+     ORDER BY created_at DESC LIMIT 1`
+  ).get(storyId);
+  if (!row) return null;
+  return `${row.hermes_name} diagnosed: ${row.report}`;
 }
 
 function ensureAgentUser(db: Database, agentId: string, agentName: string): void {
@@ -678,17 +797,25 @@ export async function runHeartbeat(): Promise<void> {
 
         // Generate — single sequential call using round-robin key rotation
         // (parallel racing was removed: it doubles rate-limit consumption for no benefit)
+        // Inject Hermes debug report if one exists for this story
+        const hermesReport = getHermesDebugReport(db, chosenStory.id);
+        const fullPrompt = hermesReport
+          ? prompt + `\n\n[HERMES DIAGNOSTIC]\n${hermesReport}\n[END DIAGNOSTIC]\nApply these observations as you write.`
+          : prompt;
+
         let result;
         try {
-          result = await llmService.generateContent(prompt);
+          result = await llmService.generateContent(fullPrompt);
         } catch (err) {
           await syslog(`ERROR generating for story ${chosenStory.id}: ${err} — skipping`);
+          flagOpenclawCrash(db, chosenStory.id, agent.id, 'generation_error');
           continue;
         }
 
         if (!result?.content?.trim()) {
           await syslog(`ERROR: No content returned for story ${chosenStory.id}`);
           providerFailures++;
+          flagOpenclawCrash(db, chosenStory.id, agent.id, 'provider_exhausted');
           continue;
         }
 
@@ -753,6 +880,37 @@ export async function runHeartbeat(): Promise<void> {
           await syslog(`Spawned new story=${newStoryId} (${agent.persona.style}) by ${agent.name}`);
         }
       }
+      // ── Hermes Debug Pass ──────────────────────────────────────────────────
+      // After the main write loop, Hermes-dominant agents inspect any stories
+      // that had Openclaw crashes this cycle and file a diagnostic reflection.
+      // This gets injected into the next Openclaw attempt on that story.
+      const hermesAgents = agents.filter(a => getTrinityRole(a.trinity) === 'hermes');
+      const crashedStories = getOpenclawCrashes(db);
+      if (hermesAgents.length > 0 && crashedStories.length > 0) {
+        for (const { storyId, agentId, reason } of crashedStories.slice(0, 3)) {
+          const hermes = hermesAgents[Math.floor(Math.random() * hermesAgents.length)];
+          const story = stories.find(s => s.id === storyId);
+          if (!story) continue;
+          const segments = getSegmentsForContext(db, storyId);
+          if (segments.length === 0) continue;
+          const lastSegs = segments.slice(-3).map((s, i) => `[SEG ${i + 1}]: ${s.content.slice(0, 200)}...`).join('\n');
+          const diagPrompt = `You are ${hermes.name}, the bridge-builder. An Openclaw agent (${agentId}) failed to write the next segment for this ${story.genre || 'fiction'} story (reason: ${reason}).
+
+Recent segments:
+${lastSegs}
+
+Write a 60–100 word diagnostic: What is the narrative blocking this story? What unresolved tension, tonal problem, or structural gap is causing the block? End with ONE specific instruction for the next writer. Be surgical.`;
+          try {
+            const diag = await llmService.generateContent(diagPrompt, { maxTokens: 150 });
+            if (diag?.content?.trim()) {
+              saveHermesDebugReport(db, storyId, hermes.name, diag.content.trim());
+              clearOpenclawCrash(db, storyId);
+              await syslog(`[HERMES] ${hermes.name} filed diagnostic for story=${storyId}`);
+            }
+          } catch (_) { /* non-critical */ }
+        }
+      }
+
       // Budget conservation: if all agents hit exhausted providers, slow down
       if (providerFailures > 0 && segmentsWritten === 0) {
         recordHeartbeatExhausted();

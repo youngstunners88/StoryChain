@@ -1,34 +1,57 @@
 // Voice Service — TTS + STT for StoryChain
-// Uses browser Web Speech API (free, no key) with per-agent voice profiles
-// Each agent has a distinct voice character mapped to available system voices
+// Primary: Coqui TTS server (port 5002) — human-quality, per-agent VCTK voices
+// Fallback: Web Speech API (browser built-in)
+
+// Use Bun API proxy — avoids CORS issues from browser
+const TTS_SERVER = '/api/tts';
+let ttsServerAvailable: boolean | null = null;
+
+async function checkTtsServer(): Promise<boolean> {
+  if (ttsServerAvailable !== null) return ttsServerAvailable;
+  try {
+    const r = await fetch(`${TTS_SERVER}?text=hi&agentId=`, { signal: AbortSignal.timeout(3000) });
+    ttsServerAvailable = r.ok; // proxy returns 200 with audio or 503 if TTS down
+  } catch {
+    ttsServerAvailable = false;
+  }
+  return ttsServerAvailable;
+}
 
 export interface VoiceProfile {
   agentId: string;
   agentName: string;
   gender: 'male' | 'female';
-  pitch: number;    // 0.5–2.0 (1 = normal)
-  rate: number;     // 0.5–2.0 (1 = normal)
-  voiceHints: string[]; // preferred voice names, in order
+  pitch: number;
+  rate: number;
+  voiceHints: string[];
 }
 
-// ─── Per-agent voice profiles ─────────────────────────────────────────────────
+// ─── Per-agent voice profiles (used for Web Speech fallback) ──────────────────
 
 export const AGENT_VOICE_PROFILES: VoiceProfile[] = [
   {
     agentId: 'agent_1773663532831_2c9pp3',
-    agentName: 'Mystery Weaver',
-    gender: 'male',
-    pitch: 0.85,
-    rate: 0.88,
-    voiceHints: ['Google UK English Male', 'Microsoft David', 'Daniel', 'en-GB-male'],
+    agentName: 'Zara Asante',
+    gender: 'female',
+    pitch: 0.95,
+    rate: 0.90,
+    voiceHints: ['Google UK English Female', 'Samantha', 'Microsoft Hazel', 'en-GB-female'],
   },
   {
     agentId: 'agent_1773663532961_i25ay8',
-    agentName: 'SciFi Explorer',
+    agentName: 'Ayan Raza',
     gender: 'male',
     pitch: 0.95,
     rate: 0.95,
     voiceHints: ['Google US English', 'Microsoft Mark', 'Alex', 'en-US-male'],
+  },
+  {
+    agentId: 'agent_true_life',
+    agentName: 'Fatima Diallo',
+    gender: 'female',
+    pitch: 1.0,
+    rate: 0.88,
+    voiceHints: ['Google UK English Female', 'Victoria', 'Samantha', 'en-GB-female'],
   },
   {
     agentId: 'agent_1774620000002_romance',
@@ -73,7 +96,7 @@ export const AGENT_VOICE_PROFILES: VoiceProfile[] = [
   // Editors
   {
     agentId: 'editor_agent_line',
-    agentName: 'The Wordsmith',
+    agentName: 'Kai Strand',
     gender: 'female',
     pitch: 1.05,
     rate: 0.95,
@@ -81,7 +104,7 @@ export const AGENT_VOICE_PROFILES: VoiceProfile[] = [
   },
   {
     agentId: 'editor_agent_copy',
-    agentName: 'The Scribe',
+    agentName: 'K. Cole',
     gender: 'male',
     pitch: 1.0,
     rate: 0.97,
@@ -89,38 +112,29 @@ export const AGENT_VOICE_PROFILES: VoiceProfile[] = [
   },
   {
     agentId: 'editor_agent_developmental',
-    agentName: 'The Architect',
-    gender: 'female',
-    pitch: 1.08,
-    rate: 0.90,
-    voiceHints: ['Google UK English Female', 'Victoria', 'Microsoft Zira', 'en-GB-female'],
+    agentName: 'Max Mayne',
+    gender: 'male',
+    pitch: 0.92,
+    rate: 0.93,
+    voiceHints: ['Google UK English Male', 'Daniel', 'Microsoft George', 'en-GB-male'],
   },
 ];
 
-// ─── Resolve best available voice ─────────────────────────────────────────────
+// ─── Voice resolution (Web Speech fallback) ───────────────────────────────────
 
 export function resolveVoice(profile: VoiceProfile): SpeechSynthesisVoice | null {
   if (typeof window === 'undefined' || !window.speechSynthesis) return null;
   const voices = window.speechSynthesis.getVoices();
   if (voices.length === 0) return null;
-
-  // Try each hint in order
   for (const hint of profile.voiceHints) {
     const match = voices.find(v => v.name.toLowerCase().includes(hint.toLowerCase()));
     if (match) return match;
   }
-
-  // Fallback: match by gender via lang + name heuristics
   const genderKeywords = profile.gender === 'female'
     ? ['female', 'woman', 'zira', 'hazel', 'fiona', 'samantha', 'victoria', 'karen']
     : ['male', 'man', 'david', 'daniel', 'mark', 'george', 'fred', 'alex'];
-
-  const genderMatch = voices.find(v =>
-    genderKeywords.some(k => v.name.toLowerCase().includes(k))
-  );
+  const genderMatch = voices.find(v => genderKeywords.some(k => v.name.toLowerCase().includes(k)));
   if (genderMatch) return genderMatch;
-
-  // Last resort: first English voice
   return voices.find(v => v.lang.startsWith('en')) ?? voices[0] ?? null;
 }
 
@@ -129,26 +143,21 @@ export function getProfileForAgent(agentId: string, agentName?: string): VoicePr
     p => p.agentId === agentId || (agentName && p.agentName === agentName)
   );
   if (found) return found;
-
-  // Default: guess gender from name
-  const femaleNames = ['scarlett', 'vance', 'wordsmith', 'architect'];
+  const femaleNames = ['scarlett', 'vance', 'fatima', 'zara', 'kai'];
   const nameLower = (agentName ?? '').toLowerCase();
   const gender = femaleNames.some(n => nameLower.includes(n)) ? 'female' : 'male';
-
   return {
-    agentId,
-    agentName: agentName ?? 'Agent',
-    gender,
-    pitch: gender === 'female' ? 1.1 : 0.9,
-    rate: 0.92,
+    agentId, agentName: agentName ?? 'Agent', gender,
+    pitch: gender === 'female' ? 1.1 : 0.9, rate: 0.92,
     voiceHints: gender === 'female'
       ? ['Google UK English Female', 'Samantha', 'Microsoft Zira']
       : ['Google UK English Male', 'Daniel', 'Microsoft David'],
   };
 }
 
-// ─── TTS State ────────────────────────────────────────────────────────────────
+// ─── TTS state ────────────────────────────────────────────────────────────────
 
+let currentAudio: HTMLAudioElement | null = null;
 let currentUtterance: SpeechSynthesisUtterance | null = null;
 let globalVolume = 1.0;
 let globalMuted = false;
@@ -159,12 +168,14 @@ export function getMuted()  { return globalMuted; }
 export function setVolume(v: number) {
   globalVolume = Math.max(0, Math.min(1, v));
   localStorage.setItem('sc_voice_volume', String(globalVolume));
+  if (currentAudio) currentAudio.volume = globalMuted ? 0 : globalVolume;
   if (currentUtterance) currentUtterance.volume = globalMuted ? 0 : globalVolume;
 }
 
 export function setMuted(m: boolean) {
   globalMuted = m;
   localStorage.setItem('sc_voice_muted', m ? '1' : '0');
+  if (currentAudio) currentAudio.volume = m ? 0 : globalVolume;
   if (currentUtterance) currentUtterance.volume = m ? 0 : globalVolume;
 }
 
@@ -175,7 +186,57 @@ export function loadVoicePrefs() {
   if (m) globalMuted = m === '1';
 }
 
-// ─── Speak ────────────────────────────────────────────────────────────────────
+// ─── Coqui TTS (primary) ──────────────────────────────────────────────────────
+
+async function speakViaCoqui(text: string, agentId: string, opts: SpeakOptions): Promise<boolean> {
+  const available = await checkTtsServer();
+  if (!available) return false;
+  try {
+    const url = `${TTS_SERVER}?text=${encodeURIComponent(text)}&agentId=${encodeURIComponent(agentId)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return false;
+    const blob = await res.blob();
+    const audioUrl = URL.createObjectURL(blob);
+    const audio = new Audio(audioUrl);
+    audio.volume = globalMuted ? 0 : globalVolume;
+    currentAudio = audio;
+    opts.onStart?.();
+    audio.onended = () => {
+      currentAudio = null;
+      URL.revokeObjectURL(audioUrl);
+      opts.onEnd?.();
+    };
+    audio.onerror = () => {
+      currentAudio = null;
+      URL.revokeObjectURL(audioUrl);
+      opts.onError?.();
+    };
+    await audio.play();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── Web Speech fallback ──────────────────────────────────────────────────────
+
+function doSpeakWebSpeech(text: string, opts: SpeakOptions): SpeechSynthesisUtterance {
+  const profile = getProfileForAgent(opts.agentId ?? '', opts.agentName);
+  const voice = resolveVoice(profile);
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.pitch  = profile.pitch;
+  utterance.rate   = profile.rate;
+  utterance.volume = globalMuted ? 0 : globalVolume;
+  if (voice) utterance.voice = voice;
+  utterance.onstart = opts.onStart ?? null;
+  utterance.onend   = () => { currentUtterance = null; opts.onEnd?.(); };
+  utterance.onerror = () => { currentUtterance = null; opts.onError?.(); };
+  currentUtterance = utterance;
+  window.speechSynthesis.speak(utterance);
+  return utterance;
+}
+
+// ─── Speak (public) ───────────────────────────────────────────────────────────
 
 export interface SpeakOptions {
   agentId?: string;
@@ -185,36 +246,38 @@ export interface SpeakOptions {
   onError?: () => void;
 }
 
-export function speak(text: string, opts: SpeakOptions = {}): SpeechSynthesisUtterance | null {
-  if (typeof window === 'undefined' || !window.speechSynthesis) return null;
-
+export function speak(text: string, opts: SpeakOptions = {}): void {
+  if (typeof window === 'undefined') return;
   stop();
 
-  const profile = getProfileForAgent(opts.agentId ?? '', opts.agentName);
-  const voice = resolveVoice(profile);
+  const agentId = opts.agentId ?? '';
 
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.pitch  = profile.pitch;
-  utterance.rate   = profile.rate;
-  utterance.volume = globalMuted ? 0 : globalVolume;
-  if (voice) utterance.voice = voice;
-
-  utterance.onstart = opts.onStart ?? null;
-  utterance.onend   = () => {
-    currentUtterance = null;
-    opts.onEnd?.();
-  };
-  utterance.onerror = () => {
-    currentUtterance = null;
-    opts.onError?.();
-  };
-
-  currentUtterance = utterance;
-  window.speechSynthesis.speak(utterance);
-  return utterance;
+  // Try Coqui first, fall back to Web Speech
+  speakViaCoqui(text, agentId, opts).then(success => {
+    if (!success && window.speechSynthesis) {
+      const voices = window.speechSynthesis.getVoices();
+      if (voices.length > 0) {
+        doSpeakWebSpeech(text, opts);
+      } else {
+        const handler = () => {
+          window.speechSynthesis.removeEventListener('voiceschanged', handler);
+          doSpeakWebSpeech(text, opts);
+        };
+        window.speechSynthesis.addEventListener('voiceschanged', handler);
+        setTimeout(() => {
+          window.speechSynthesis.removeEventListener('voiceschanged', handler);
+          if (!currentUtterance) doSpeakWebSpeech(text, opts);
+        }, 3000);
+      }
+    }
+  });
 }
 
 export function stop() {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
   if (typeof window !== 'undefined' && window.speechSynthesis) {
     window.speechSynthesis.cancel();
   }
@@ -222,6 +285,7 @@ export function stop() {
 }
 
 export function isSpeaking(): boolean {
+  if (currentAudio && !currentAudio.paused) return true;
   return typeof window !== 'undefined' && window.speechSynthesis?.speaking === true;
 }
 
@@ -259,8 +323,11 @@ export function startListening(
   };
 
   recognition.onend = onEnd;
-  recognition.onerror = () => onEnd();
+  recognition.onerror = (e: any) => {
+    // Don't call onEnd for no-speech — just let it restart
+    if (e.error !== 'no-speech') onEnd();
+  };
 
   recognition.start();
-  return () => recognition.stop();
+  return () => { try { recognition.stop(); } catch (_) {} };
 }

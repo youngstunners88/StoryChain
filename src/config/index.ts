@@ -84,6 +84,13 @@ export function validateConfig(): { valid: boolean; errors: string[] } {
     if (config.security.sessionSecret === 'development_secret_change_in_production') {
       errors.push('SESSION_SECRET must be changed from default in production');
     }
+    if (config.security.jwtSecret === 'development_jwt_secret_change_in_production') {
+      errors.push('JWT_SECRET must be set in production — server refuses to start with default');
+    }
+    const hasAnyLLM = !!(process.env.GROQ_API_KEY || process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY);
+    if (!hasAnyLLM) {
+      errors.push('At least one LLM API key (GROQ_API_KEY, OPENROUTER_API_KEY, or ANTHROPIC_API_KEY) must be set in production');
+    }
     if (!config.security.forceHttps) {
       console.warn('[Config] Warning: FORCE_HTTPS is not enabled in production');
     }

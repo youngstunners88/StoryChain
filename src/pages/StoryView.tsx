@@ -186,7 +186,7 @@ export function StoryView({ id }: { id?: string | null }) {
     try {
       const res = await fetch(`/api/stories/${story.id}/comments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-session-id': penName ?? 'guest' },
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ content: commentText.trim(), authorName: penName ?? 'Anonymous' }),
       });
       if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed'); }

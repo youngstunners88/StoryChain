@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { VoiceCallModal } from '../components/VoiceCallModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -139,6 +140,32 @@ const WriterCard: React.FC<{ writer: Writer; onClick: () => void; index: number 
         <StatPill value={writer.storyCount} label="Stories" color={accent} />
         <StatPill value={writer.contributionCount} label="Chapters" color={accent} />
         <StatPill value={writer.totalLikes} label="Likes" color={accent} />
+      </div>
+
+      {/* DM + Call actions */}
+      <div className="px-5 pb-4 flex gap-2" style={{ borderTop: `1px solid ${accent}12`, paddingTop: 10 }}>
+        <button
+          onClick={e => { e.stopPropagation(); window.location.hash = `messages/${writer.id}/${encodeURIComponent(writer.name)}`; }}
+          className="flex-1 py-2 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 transition-all"
+          style={{ background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.25)', color: '#c9a84c', cursor: 'pointer' }}
+          onMouseEnter={e => { (e.currentTarget.style.background = 'rgba(201,168,76,0.16)'); }}
+          onMouseLeave={e => { (e.currentTarget.style.background = 'rgba(201,168,76,0.08)'); }}>
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+          </svg>
+          DM
+        </button>
+        <button
+          onClick={e => { e.stopPropagation(); onClick(); }}
+          className="px-3 py-2 rounded-xl text-xs font-medium flex items-center gap-1 transition-all"
+          style={{ background: `${accent}10`, border: `1px solid ${accent}30`, color: accent, cursor: 'pointer' }}
+          onMouseEnter={e => { (e.currentTarget.style.background = `${accent}20`); }}
+          onMouseLeave={e => { (e.currentTarget.style.background = `${accent}10`); }}>
+          <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/>
+          </svg>
+          Profile
+        </button>
       </div>
     </motion.div>
   );
@@ -400,6 +427,7 @@ const WriterProfile: React.FC<{
   const fileRef = useRef<HTMLInputElement>(null);
   const [form, setForm] = useState({ about: '', age: '', country: '', genreLabel: '', socialTwitter: '', socialIG: '' });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [showVoiceCall, setShowVoiceCall] = useState(false);
 
   const isOwn = currentUserId === writerId;
   const pal = writer ? genrePalette(writer.genre) : GENRE_PALETTE.default;
@@ -568,14 +596,42 @@ const WriterProfile: React.FC<{
               )}
             </div>
 
-            {isOwn && !editing && (
-              <button onClick={() => setEditing(true)} className="flex-shrink-0 btn-ghost px-3 py-2 text-xs flex items-center gap-1.5">
-                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
-                </svg>
-                Edit
-              </button>
-            )}
+            <div className="flex gap-2 flex-shrink-0">
+              {!isOwn && (
+                <>
+                  {/* DM button */}
+                  <button
+                    onClick={() => { window.location.hash = `messages/${writerId}/${encodeURIComponent(writer.name)}`; }}
+                    title={`Message ${writer.name}`}
+                    className="btn-ghost px-3 py-2 text-xs flex items-center gap-1.5"
+                    style={{ border: '1px solid rgba(201,168,76,0.3)', color: '#c9a84c', background: 'rgba(201,168,76,0.08)', cursor: 'pointer', borderRadius: 10 }}>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.076-4.076a1.526 1.526 0 011.037-.443 48.282 48.282 0 005.68-.494c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                    </svg>
+                    DM
+                  </button>
+                  {/* Voice call button */}
+                  <button
+                    onClick={() => setShowVoiceCall(true)}
+                    title={`Call ${writer.name}`}
+                    className="btn-ghost px-3 py-2 text-xs flex items-center gap-1.5"
+                    style={{ border: `1px solid ${accent}40`, color: accent, background: `${accent}10`, cursor: 'pointer', borderRadius: 10 }}>
+                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C9.6 21 3 14.4 3 6c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
+                    </svg>
+                    Call
+                  </button>
+                </>
+              )}
+              {isOwn && !editing && (
+                <button onClick={() => setEditing(true)} className="flex-shrink-0 btn-ghost px-3 py-2 text-xs flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z"/>
+                  </svg>
+                  Edit
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -673,6 +729,19 @@ const WriterProfile: React.FC<{
             ))}
           </div>
         </div>
+      )}
+
+      {/* Voice call modal */}
+      {showVoiceCall && writer && !isOwn && (
+        <VoiceCallModal
+          partnerId={writerId}
+          partnerName={writer.name}
+          partnerAvatar={writer.avatarUrl}
+          partnerEmoji={writer.avatarEmoji}
+          partnerColor={accent}
+          isAgent={writer.isAgent}
+          onClose={() => setShowVoiceCall(false)}
+        />
       )}
     </div>
   );

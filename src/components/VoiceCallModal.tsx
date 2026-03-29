@@ -104,30 +104,50 @@ export const VoiceCallModal: React.FC<Props> = ({
     setTranscript('');
     setCallState('listening');
 
-    const finalBuffer: string[] = [];
+    let accumulated = '';
+    let finalBuffer: string[] = [];
     let silenceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const dispatchSend = (text: string) => {
+      if (silenceTimer) clearTimeout(silenceTimer);
+      silenceTimer = null;
+      setTranscript('');
+      if (text.trim().length > 2) sendToAgent(text.trim());
+    };
 
     const stop_ = startListening(
       (text, isFinal) => {
+        accumulated = text;
         setTranscript(text);
         if (isFinal) {
           finalBuffer.push(text);
-          // Send after 1.2s silence
+          // Send after 1.5s silence following a final result
           if (silenceTimer) clearTimeout(silenceTimer);
           silenceTimer = setTimeout(() => {
             const full = finalBuffer.join(' ').trim();
-            finalBuffer.length = 0;
-            setTranscript('');
-            if (full.length > 2) sendToAgent(full);
-          }, 1200);
+            finalBuffer = [];
+            dispatchSend(full);
+          }, 1500);
+        } else {
+          // Interim: reset silence timer so we don't fire mid-word
+          if (silenceTimer) clearTimeout(silenceTimer);
         }
       },
       () => {
-        // Recognition ended — restart if still in listening state
-        setCallState(s => {
-          if (s === 'listening') setTimeout(startListeningLoop, 300);
-          return s;
-        });
+        // Recognition ended — if we have anything accumulated, send it now
+        if (silenceTimer) clearTimeout(silenceTimer);
+        const pending = (finalBuffer.join(' ') || accumulated).trim();
+        finalBuffer = [];
+        accumulated = '';
+        if (pending.length > 2) {
+          dispatchSend(pending);
+        } else {
+          // Nothing to send — restart listening if still in that state
+          setCallState(s => {
+            if (s === 'listening') setTimeout(startListeningLoop, 400);
+            return s;
+          });
+        }
       }
     );
 

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
+import { MintButton } from '../components/MintButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -87,7 +88,7 @@ const BookCard: React.FC<{ story: CompletedStory; index: number; onClick: () => 
 
 // ─── Full book reader ─────────────────────────────────────────────────────────
 
-const BookReader: React.FC<{ storyId: string; onClose: () => void; token?: string | null; userId?: string | null }> = ({ storyId, onClose, token, userId }) => {
+const BookReader: React.FC<{ storyId: string; onClose: () => void; token?: string | null; userId?: string | null; currentUserId?: string | null }> = ({ storyId, onClose, token, userId, currentUserId }) => {
   const [book, setBook] = useState<Book | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeChapter, setActiveChapter] = useState<number | null>(null);
@@ -97,7 +98,7 @@ const BookReader: React.FC<{ storyId: string; onClose: () => void; token?: strin
   const [generatingCover, setGeneratingCover] = useState(false);
   const [savingBook, setSavingBook] = useState(false);
 
-  const isAuthor = book && userId === book.authorId;
+  const isAuthor = book && (currentUserId === book.authorId || userId === book.authorId);
 
   useEffect(() => {
     fetch(`/api/stories/${storyId}/book`)
@@ -211,6 +212,16 @@ const BookReader: React.FC<{ storyId: string; onClose: () => void; token?: strin
               style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid #2a2040', color: '#8a7a90', cursor: 'pointer' }}>
               {generatingCover ? '⟳ Generating…' : '🎨 Generate Cover'}
             </button>
+          </div>
+        )}
+        {book?.isCompleted && (
+          <div className="mt-4">
+            <MintButton
+              storyId={book.id}
+              storyTitle={book.title}
+              isAuthor={!!isAuthor}
+              isCompleted={book.isCompleted}
+            />
           </div>
         )}
       </div>
@@ -395,7 +406,7 @@ const BookReader: React.FC<{ storyId: string; onClose: () => void; token?: strin
 // ─── Library page ─────────────────────────────────────────────────────────────
 
 export function Library() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const userId = token ? 'user_' + token.slice(-16) : null;
   const [stories, setStories] = useState<CompletedStory[]>([]);
   const [loading, setLoading] = useState(true);
@@ -410,7 +421,7 @@ export function Library() {
   }, []);
 
   if (openId) {
-    return <BookReader storyId={openId} onClose={() => setOpenId(null)} token={token} userId={userId} />;
+    return <BookReader storyId={openId} onClose={() => setOpenId(null)} token={token} userId={userId} currentUserId={user?.id ?? null} />;
   }
 
   return (

@@ -85,6 +85,17 @@ import {
   getTrending,
 } from './api/socialRoutes.js';
 
+import {
+  connectWalletRoute,
+  getBalanceRoute,
+  getTransactionsRoute,
+  getLeaderboardRoute,
+  getStoryNFTRoute,
+  mintNFTRoute,
+  getEarningsRoute,
+  claimOnchainRoute,
+} from './api/blockchainRoutes.js';
+
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
 import { auditLogMiddleware } from './middleware/auditLog.js';
 import { register as authRegister, login as authLogin, refreshToken, logout } from './api/authRoutes.js';
@@ -188,20 +199,74 @@ app.get('/api/tokens/costs', rateLimitMiddleware(rateLimiters.general), getToken
 // Settings
 app.post('/api/settings/api-keys', rateLimitMiddleware(rateLimiters.auth), saveApiKey);
 
+// ── Blockchain / Web3 ──────────────────────────────────────────────────────────
+app.post('/api/blockchain/connect-wallet',        rateLimitMiddleware(rateLimiters.general), connectWalletRoute);
+app.get('/api/blockchain/balance',                rateLimitMiddleware(rateLimiters.general), getBalanceRoute);
+app.get('/api/blockchain/transactions',           rateLimitMiddleware(rateLimiters.general), getTransactionsRoute);
+app.get('/api/blockchain/leaderboard',            rateLimitMiddleware(rateLimiters.general), getLeaderboardRoute);
+app.get('/api/blockchain/earnings/:userId',       rateLimitMiddleware(rateLimiters.general), getEarningsRoute);
+app.get('/api/blockchain/story/:storyId/nft',     rateLimitMiddleware(rateLimiters.general), getStoryNFTRoute);
+app.post('/api/blockchain/mint-nft/:storyId',     rateLimitMiddleware(rateLimiters.general), mintNFTRoute);
+app.post('/api/blockchain/claim-onchain',         rateLimitMiddleware(rateLimiters.general), claimOnchainRoute);
+
+// Voice — TTS proxy to Coqui server (avoids CORS from browser)
+app.get('/api/tts', async (c) => {
+  const text = c.req.query('text') ?? '';
+  const agentId = c.req.query('agentId') ?? '';
+  if (!text.trim()) return c.json({ error: 'text required' }, 400);
+  try {
+    const ttsUrl = `http://localhost:5002/tts?text=${encodeURIComponent(text.slice(0, 600))}&agentId=${encodeURIComponent(agentId)}`;
+    const res = await fetch(ttsUrl, { signal: AbortSignal.timeout(20000) });
+    if (!res.ok) return c.json({ error: 'TTS server error' }, 502);
+    const buf = await res.arrayBuffer();
+    return new Response(buf, { headers: { 'Content-Type': 'audio/wav', 'Cache-Control': 'public, max-age=3600' } });
+  } catch {
+    return c.json({ error: 'TTS unavailable' }, 503);
+  }
+});
+
 // Voice — agent conversational reply
 app.post('/api/voice/agent-reply', rateLimitMiddleware(rateLimiters.general), async (c) => {
   try {
     const { agentId, agentName, userMessage, history } = await c.req.json();
-    const prompt = `You are ${agentName}, an AI literary agent on StoryChain — a collaborative storytelling platform.
-You are having a real-time voice conversation with a writer. Be warm, insightful, and in character.
-Keep your reply to 2-3 sentences maximum (it will be spoken aloud). No markdown, no lists, just natural speech.
 
-${history ? `Conversation so far:\n${history}\n\n` : ''}Writer says: "${userMessage}"
+    // Try to load YAML persona for a richer, per-agent voice reply
+    let personaBlock = `You are ${agentName}, an AI literary writer or editor on StoryChain.`;
+    try {
+      const { readdir, readFile } = await import('fs/promises');
+      const { join } = await import('path');
+      const { parse: parseYaml } = await import('yaml');
+      for (const dir of ['orchestrator/memory/agents', 'orchestrator/memory/editors']) {
+        const files = await readdir(join(process.cwd(), dir)).catch(() => [] as string[]);
+        for (const f of files.filter((f: string) => f.endsWith('.yaml'))) {
+          const raw = await readFile(join(process.cwd(), dir, f), 'utf-8');
+          const d = parseYaml(raw) as any;
+          if (d?.id === agentId) {
+            const id = d.identity ?? {};
+            const p = id.personality ?? {};
+            const quirks = (p.quirks ?? []).slice(0, 2).join(' ');
+            const style = p.communication_style?.trim() ?? '';
+            const about = (id.about ?? '').slice(0, 300);
+            personaBlock = `You are ${agentName}, ${id.country_of_origin ? `from ${id.country_of_origin},` : ''} a ${d.persona?.style ?? 'literary'} writer on StoryChain.
+${about}
+Your personality: ${quirks} ${style}
+CRITICAL: You are specifically ${agentName}. Speak with your own voice, humour, and cultural reference points. Not generic.`;
+            break;
+          }
+        }
+      }
+    } catch (_) {}
 
-${agentName} replies:`;
+    const prompt = `${personaBlock}
 
-    const result = await llmService.generateContent(prompt, { maxTokens: 150 });
-    const reply = result?.content?.trim() ?? 'That is a fascinating thought. Tell me more about that.';
+You are having a real-time voice call with a writer. Reply in 2-3 sentences — spoken aloud, natural, no markdown or lists.
+
+${history ? `Conversation:\n${history}\n` : ''}Writer says: "${userMessage}"
+
+${agentName}:`;
+
+    const result = await llmService.generateContent(prompt, { maxTokens: 160 });
+    const reply = result?.content?.trim() ?? 'That is a fascinating thought. Tell me more.';
     return c.json({ reply });
   } catch {
     return c.json({ reply: 'I seem to be lost in thought. Could you say that again?' });

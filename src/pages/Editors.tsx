@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { VoiceCallModal } from '../components/VoiceCallModal';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -68,7 +69,7 @@ function editorTypeLabel(type: string, isAgent?: boolean) {
 
 // ─── Editor Card ─────────────────────────────────────────────────────────────
 
-const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void; onMessage: () => void }> = ({ editor, onSubmit, onMessage }) => {
+const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void; onMessage: () => void; onCall: () => void }> = ({ editor, onSubmit, onMessage, onCall }) => {
   const accent = editor.avatarColor || editorTypeColor(editor.editorType);
   return (
     <div className="rounded-2xl overflow-hidden transition-all duration-200"
@@ -166,6 +167,22 @@ const EditorCard: React.FC<{ editor: Editor; onSubmit: () => void; onMessage: ()
           </svg>
           DM
         </button>
+        {editor.isAgent && (
+          <button onClick={onCall}
+            title={`Call ${editor.displayName}`}
+            className="px-3 py-2 rounded-xl text-xs transition-all flex items-center gap-1"
+            style={{
+              background: `${accent}10`, border: `1px solid ${accent}30`,
+              color: accent, cursor: 'pointer',
+            }}
+            onMouseEnter={e => { (e.currentTarget.style.background = `${accent}20`); }}
+            onMouseLeave={e => { (e.currentTarget.style.background = `${accent}10`); }}>
+            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6.6 10.8c1.4 2.8 3.8 5.1 6.6 6.6l2.2-2.2c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.6.6.6 0 1 .4 1 1V20c0 .6-.4 1-1 1C9.6 21 3 14.4 3 6c0-.6.4-1 1-1h3.5c.6 0 1 .4 1 1 0 1.3.2 2.5.6 3.6.1.3 0 .7-.2 1L6.6 10.8z"/>
+            </svg>
+            Call
+          </button>
+        )}
       </div>
     </div>
   );
@@ -522,12 +539,17 @@ export function Editors() {
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [preselectedEditor, setPreselectedEditor] = useState<string | undefined>();
   const [toast, setToast] = useState<string | null>(null);
+  const [callingEditor, setCallingEditor] = useState<Editor | null>(null);
 
   const loadEditors = () => {
     setLoading(true);
     fetchWithAuth('/api/editors')
       .then(r => r.ok ? r.json() : { editors: [] })
-      .then(d => setEditors(d.editors ?? []))
+      .then(d => setEditors((d.editors ?? []).map((e: any) => ({
+        ...e,
+        userId: e.userId ?? e.id,
+        displayName: e.displayName ?? e.name,
+      }))))
       .catch(() => {})
       .finally(() => setLoading(false));
   };
@@ -655,7 +677,8 @@ export function Editors() {
           {visible.map(ed => (
             <EditorCard key={ed.userId} editor={ed}
               onSubmit={() => { setPreselectedEditor(ed.userId); setShowSubmitModal(true); }}
-              onMessage={() => { window.location.hash = `messages/${ed.userId}`; }} />
+              onMessage={() => { window.location.hash = `messages/${ed.userId}/${encodeURIComponent(ed.displayName)}`; }}
+              onCall={() => setCallingEditor(ed)} />
           ))}
         </div>
       )}
@@ -675,6 +698,19 @@ export function Editors() {
           fetchWithAuth={fetchWithAuth}
           onClose={() => setShowJoinModal(false)}
           onSuccess={() => { showToast('You\'ve joined the Editorial Board!'); loadEditors(); }}
+        />
+      )}
+
+      {/* Voice call modal */}
+      {callingEditor && (
+        <VoiceCallModal
+          partnerId={callingEditor.userId}
+          partnerName={callingEditor.displayName}
+          partnerAvatar={callingEditor.avatarUrl}
+          partnerEmoji={callingEditor.avatarEmoji}
+          partnerColor={callingEditor.avatarColor}
+          isAgent={callingEditor.isAgent !== false}
+          onClose={() => setCallingEditor(null)}
         />
       )}
     </div>
