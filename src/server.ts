@@ -98,7 +98,7 @@ import {
 
 import { rateLimitMiddleware, rateLimiters } from './middleware/rateLimiter.js';
 import { auditLogMiddleware } from './middleware/auditLog.js';
-import { register as authRegister, login as authLogin, refreshToken, logout } from './api/authRoutes.js';
+import { register as authRegister, login as authLogin, refreshToken, logout, getMe } from './api/authRoutes.js';
 
 const configValidation = validateConfig();
 if (!configValidation.valid) {
@@ -177,11 +177,16 @@ app.get('/api/health', async (c) => {
   return c.json({ status: 'healthy', timestamp: new Date().toISOString(), database: 'connected', version: '2.0.0', environment: config.nodeEnv });
 });
 
-// Auth
+// Auth — /api/auth/* (new) + /auth/* (legacy compat)
+app.post('/api/auth/register', rateLimitMiddleware(rateLimiters.auth), authRegister);
+app.post('/api/auth/login',    rateLimitMiddleware(rateLimiters.auth), authLogin);
+app.post('/api/auth/refresh',  rateLimitMiddleware(rateLimiters.auth), refreshToken);
+app.post('/api/auth/logout',   rateLimitMiddleware(rateLimiters.general), logout);
+app.get('/api/auth/me',        rateLimitMiddleware(rateLimiters.general), getMe);
 app.post('/auth/register', rateLimitMiddleware(rateLimiters.auth), authRegister);
-app.post('/auth/login', rateLimitMiddleware(rateLimiters.auth), authLogin);
-app.post('/auth/refresh', rateLimitMiddleware(rateLimiters.auth), refreshToken);
-app.post('/auth/logout', rateLimitMiddleware(rateLimiters.general), logout);
+app.post('/auth/login',    rateLimitMiddleware(rateLimiters.auth), authLogin);
+app.post('/auth/refresh',  rateLimitMiddleware(rateLimiters.auth), refreshToken);
+app.post('/auth/logout',   rateLimitMiddleware(rateLimiters.general), logout);
 
 // User settings
 app.get('/api/user/settings', rateLimitMiddleware(rateLimiters.general), getUserSettings);

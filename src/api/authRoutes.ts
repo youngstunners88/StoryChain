@@ -123,6 +123,29 @@ export async function refreshToken(c: Context) {
   }
 }
 
+// GET /auth/me — return current user from access token
+export async function getMe(c: Context) {
+  try {
+    const authHeader = c.req.header('authorization');
+    if (!authHeader?.startsWith('Bearer ')) return c.json({ error: 'Unauthorized' }, 401);
+
+    const payload = await verifyJwt(authHeader.slice(7));
+    if (!payload) return c.json({ error: 'Invalid token' }, 401);
+
+    const db = await getDb();
+    const user = db.query(
+      `SELECT id, username, role FROM users WHERE id = ?`
+    ).get(payload.userId) as { id: string; username: string; role: string } | null;
+
+    if (!user) return c.json({ error: 'User not found' }, 404);
+
+    return c.json({ id: user.id, penName: user.username, role: user.role });
+  } catch (err) {
+    console.error('[Auth] Me error:', err);
+    return c.json({ error: 'Failed to get user' }, 500);
+  }
+}
+
 // POST /auth/logout
 export async function logout(c: Context) {
   try {
