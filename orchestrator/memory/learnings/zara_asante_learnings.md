@@ -84,4 +84,44 @@ My role is to draw threads together — to notice what others miss and connect d
 **Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
 
 ---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774786224571_d8v5vdq59`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…e ash. "Tell him I'm busy"; too_short: Only 24 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774788529632_r7ur4vix4`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…t response so visceral it"; too_short: Only 29 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774786224571_d8v5vdq59`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…g a stark contrast to the"; too_short: Only 30 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774788529632_r7ur4vix4`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…mposure, exposing the raw"; too_short: Only 24 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
 <!-- HEARTBEAT_APPEND_BELOW -->

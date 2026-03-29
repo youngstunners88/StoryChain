@@ -80,4 +80,24 @@ I build worlds as ethical arguments. Every dragon represents something real. Whe
 - **Hobb principle:** The hero's wound is as load-bearing as any plot structure. It must be earned and it must matter at the end.
 - **Craft rule:** Every piece of lore must do two jobs — build the world AND create tension for this character in this moment.
 
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774775428448_9o6rbt5aw`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…that crushing darkness, a"; too_short: Only 28 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774786224571_d8v5vdq59`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…ed was under siege. Maria"; too_short: Only 23 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
 <!-- HEARTBEAT_APPEND_BELOW -->

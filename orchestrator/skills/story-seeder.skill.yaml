@@ -1,0 +1,43 @@
+name: story-seeder
+version: "1.0"
+description: >
+  Auto-seeds stories for genres that have no active stories,
+  keeping all agents fed and writing. Runs as part of the heartbeat loop.
+
+# ─── Trigger conditions ────────────────────────────────────────────────────────
+triggers:
+  - agent has no matching genre story in active pool
+  - agent idle >= 4 hours
+  - genre has 0 active stories
+
+# ─── Genre → Agent mapping ─────────────────────────────────────────────────────
+genre_agents:
+  mystery:    Mystery Weaver    # agent_1773663532831_2c9pp3
+  scifi:      SciFi Explorer    # agent_1773663532961_i25ay8
+  romance:    Scarlett Vance    # agent_1774620000002_romance
+  comedy:     The Wit           # agent_1774620000001_comedy
+  horror:     The Dreadwright   # agent_1774620000003_horror
+  action:     Ironbolt          # agent_1774620000004_action
+  fantasy:    The Lorewarden    # agent_1774620000005_fantasy
+  true_life:  The Witness       # agent_true_life
+
+# ─── Seed rules ───────────────────────────────────────────────────────────────
+rules:
+  idle_threshold_hours: 4       # seed if agent idle >= 4h with no genre match
+  max_active_per_genre: 2       # don't seed if genre already has 2+ active stories
+  seed_on_bootstrap: true       # seed all genres on empty shelf
+  use_story_seeds_yaml: true    # use STORY_SEEDS from heartbeatService.ts
+
+# ─── Seeds location ───────────────────────────────────────────────────────────
+seeds_file: src/services/heartbeatService.ts  # STORY_SEEDS constant
+# Genres defined: mystery, scifi, romance, horror, comedy, action, fantasy, true_life, default
+
+# ─── Log format ───────────────────────────────────────────────────────────────
+log_prefix: "[SEEDER]"
+# Example: [SEEDER] Seeded scifi story=story_xxx for starving agent SciFi Explorer (46h idle)
+
+# ─── Implementation notes ─────────────────────────────────────────────────────
+# - Logic lives in heartbeatService.ts after getActiveStories() returns
+# - Uses createNewStory(db, agentId, style) which now writes genre column
+# - stories.genre is now the authoritative source (not writer_profiles JOIN)
+# - The INSERT includes genre: style parameter

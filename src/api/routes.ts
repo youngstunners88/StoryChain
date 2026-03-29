@@ -288,6 +288,7 @@ export async function createStory(c: Context) {
       modelUsed,
       authorId,     // Optional: for anonymous/agent authors
       authorName,   // Optional: display name
+      genre,        // Optional: story genre
     } = body;
 
     // --- Validation ---
@@ -356,8 +357,8 @@ export async function createStory(c: Context) {
 
     // Insert story - NO TOKENS_SPENT
     database.run(
-      `INSERT INTO stories (id, title, content, author_id, model_used, character_count, is_premium, max_contributions, is_completed, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      `INSERT INTO stories (id, title, content, author_id, model_used, character_count, is_premium, max_contributions, is_completed, genre, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
       [
         storyId,
         title.trim(),
@@ -367,6 +368,7 @@ export async function createStory(c: Context) {
         content.length,
         0, // Not premium
         50, // Default max contributions
+        genre ?? null,
       ]
     );
 

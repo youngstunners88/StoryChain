@@ -1,15 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { StoryFeed } from './pages/StoryFeed';
-import { StoryView } from './pages/StoryView';
-import { CreateStory } from './pages/CreateStory';
-import { Settings } from './pages/Settings';
-import { WriterDirectory } from './pages/WriterDirectory';
-import { Library } from './pages/Library';
-import { Editors } from './pages/Editors';
-import { MessagingPanel } from './pages/MessagingPanel';
-import { Publishers } from './pages/Publishers';
+import { useAuthStore } from './store/authStore';
+import { useUIStore } from './store/uiStore';
+import { AppRouter } from './app/router';
 import { NotificationBell } from './components/NotificationBell';
 import { VoiceBar } from './components/VoicePlayer';
 import { loadVoicePrefs } from './services/voiceService';
@@ -22,19 +15,22 @@ const WelcomeScreen: React.FC = () => {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [penName, setPenName] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const { login, register } = useAuth();
+  const [localError, setLocalError] = useState('');
+  const { login, register, isLoading, clearError } = useAuthStore();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError('');
+    setLocalError('');
+    clearError();
     const name = penName.trim();
-    if (!name || name.length < 2) { setError('Pen name must be at least 2 characters'); return; }
-    if (!password || password.length < 6) { setError('Password must be at least 6 characters'); return; }
-    setIsSubmitting(true);
-    const result = mode === 'register' ? await register(name, password) : await login(name, password);
-    if (result.error) { setError(result.error); setIsSubmitting(false); }
+    if (!name || name.length < 2) { setLocalError('Pen name must be at least 2 characters'); return; }
+    if (!password || password.length < 6) { setLocalError('Password must be at least 6 characters'); return; }
+    try {
+      if (mode === 'register') await register(name, password);
+      else await login(name, password);
+    } catch (e: any) {
+      setLocalError(e.message ?? 'Something went wrong');
+    }
   };
 
   return (
@@ -89,7 +85,7 @@ const WelcomeScreen: React.FC = () => {
           <div className="flex rounded-xl overflow-hidden mb-6" style={{ background: '#0d0b08', border: '1px solid #2a2218' }}>
             {(['login', 'register'] as const).map(m => (
               <button key={m} type="button"
-                onClick={() => { setMode(m); setError(''); }}
+                onClick={() => { setMode(m); setLocalError(''); clearError(); }}
                 className="flex-1 py-2.5 text-sm font-medium transition-all"
                 style={{
                   background: mode === m ? '#c9a84c' : 'transparent',
@@ -122,18 +118,18 @@ const WelcomeScreen: React.FC = () => {
               />
             </div>
 
-            {error && (
+            {localError && (
               <p className="text-sm px-3 py-2 rounded-lg" style={{ background: 'rgba(248,113,113,0.1)', color: '#f87171', border: '1px solid rgba(248,113,113,0.2)' }}>
-                {error}
+                {localError}
               </p>
             )}
 
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isLoading}
               className="btn-gold w-full py-3 px-6 text-base flex items-center justify-center gap-2"
             >
-              {isSubmitting ? (
+              {isLoading ? (
                 <>
                   <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                     <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
@@ -177,7 +173,7 @@ const WelcomeScreen: React.FC = () => {
 const NAV_ITEMS = [
   { path: 'feed', label: 'The Shelf',
     icon: 'M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25' },
-  { path: 'create', label: 'Compose',
+  { path: 'compose', label: 'Compose',
     icon: 'M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931z' },
   { path: 'writers', label: 'Writers',
     icon: 'M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z' },
@@ -189,13 +185,11 @@ const NAV_ITEMS = [
     icon: 'M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z' },
   { path: 'publishers', label: 'Publishers',
     icon: 'M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z' },
-  { path: 'earnings', label: 'Earnings',
-    icon: 'M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 2.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125' },
   { path: 'settings', label: 'Settings',
     icon: 'M9.594 3.94c.09-.542.556-.94 1.11-.94h2.593c.554 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.212 1.28c-.09.543-.555.941-1.11.941h-2.594c-.555 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z M15 12a3 3 0 11-6 0 3 3 0 016 0z' },
 ];
 
-const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => void }> = ({ route, penName, onLogout }) => (
+const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => void; onEarnings: () => void }> = ({ route, penName, onLogout, onEarnings }) => (
   <nav className="fixed top-0 left-0 right-0 z-50"
     style={{ background: 'rgba(13,11,8,0.95)', backdropFilter: 'blur(16px)', borderBottom: '1px solid #2a2218' }}>
     <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center gap-4">
@@ -211,7 +205,7 @@ const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => 
         <span className="hidden sm:block font-serif font-bold text-base" style={{ color: '#ede6d6' }}>StoryChain</span>
       </a>
 
-      {/* Nav links — desktop only, scrollable */}
+      {/* Nav links — desktop only */}
       <div className="hidden md:flex items-center gap-0.5 flex-1 overflow-x-auto scrollbar-none">
         {NAV_ITEMS.map(({ path, label, icon }) => {
           const active = route === path || (path === 'feed' && (route === '' || route === 'feed'));
@@ -233,7 +227,7 @@ const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => 
 
       {/* Right side */}
       <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-        <TokenBalance onClick={() => { window.location.hash = 'earnings'; }} />
+        <TokenBalance onClick={onEarnings} />
         <NotificationBell />
         {penName && (
           <span className="hidden lg:block text-xs px-2.5 py-1 rounded-lg"
@@ -254,8 +248,7 @@ const TopNav: React.FC<{ route: string; penName: string | null; onLogout: () => 
   </nav>
 );
 
-// Bottom nav for mobile — 5 primary tabs only
-const MOBILE_NAV = NAV_ITEMS.filter(i => ['feed', 'create', 'writers', 'library', 'settings'].includes(i.path));
+const MOBILE_NAV = NAV_ITEMS.filter(i => ['feed', 'compose', 'writers', 'library', 'settings'].includes(i.path));
 
 const BottomNav: React.FC<{ route: string }> = ({ route }) => (
   <nav className="fixed bottom-0 left-0 right-0 z-50 md:hidden"
@@ -285,29 +278,18 @@ const BottomNav: React.FC<{ route: string }> = ({ route }) => (
 // ─── App Content ─────────────────────────────────────────────────────────────
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading, penName, logout } = useAuth();
-  const [route, setRoute] = useState('feed');
-  const [routeParam, setRouteParam] = useState<string | null>(null);
-  const [routeParam2, setRouteParam2] = useState<string | null>(null);
+  const { isAuthenticated, isLoading, user, logout, hydrate } = useAuthStore();
+  const { route, earningsPanelOpen, toggleEarningsPanel } = useUIStore();
 
   useEffect(() => {
     loadVoicePrefs();
-    const handleHash = () => {
-      const hash = window.location.hash.slice(1);
-      const parts = hash.split('/');
-      setRoute(parts[0] || 'feed');
-      setRouteParam(parts[1] ?? null);
-      setRouteParam2(parts[2] ? decodeURIComponent(parts[2]) : null);
-    };
-    handleHash();
-    window.addEventListener('hashchange', handleHash);
-    return () => window.removeEventListener('hashchange', handleHash);
+    hydrate();
   }, []);
 
   if (isLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#0d0b08' }}>
-        <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin"
+        <div className="w-8 h-8 rounded-full border-2 animate-spin"
           style={{ borderColor: '#c9a84c', borderTopColor: 'transparent' }} />
       </div>
     );
@@ -315,45 +297,27 @@ const AppContent: React.FC = () => {
 
   if (!isAuthenticated) return <WelcomeScreen />;
 
-  const renderPage = () => {
-    switch (route) {
-      case 'story':   return <StoryView id={routeParam} />;
-      case 'create':  return <CreateStory />;
-      case 'writers': return <WriterDirectory />;
-      case 'library': return <Library />;
-      case 'editors':    return <Editors />;
-      case 'messages':   return <MessagingPanel initialPartnerId={routeParam ?? undefined} initialPartnerName={routeParam2 ?? undefined} />;
-      case 'publishers': return <Publishers />;
-      case 'earnings':   return <EarningsPanel />;
-      case 'settings':   return <Settings />;
-      default:           return <StoryFeed />;
-    }
-  };
-
   return (
     <div className="min-h-screen pb-16 md:pb-0 pt-14" style={{ background: '#0d0b08' }}>
-      <TopNav route={route} penName={penName} onLogout={logout} />
+      <TopNav route={route} penName={user?.penName ?? null} onLogout={logout} onEarnings={toggleEarningsPanel} />
       <BottomNav route={route} />
       <main>
         <AnimatePresence mode="wait">
-          <motion.div key={route + (routeParam ?? '')}
+          <motion.div key={route}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}>
-            {renderPage()}
+            <AppRouter />
           </motion.div>
         </AnimatePresence>
       </main>
       <VoiceBar />
+      {earningsPanelOpen && <EarningsPanel />}
     </div>
   );
 };
 
-export const App: React.FC = () => (
-  <AuthProvider>
-    <AppContent />
-  </AuthProvider>
-);
+export const App: React.FC = () => <AppContent />;
 
 export default App;

@@ -41,13 +41,13 @@ export function AppRouter() {
   return (
     <Suspense fallback={<RouteLoading />}>
       {route === 'feed'       && <StoryFeed />}
-      {route === 'story'      && <StoryView storyId={param!} />}
+      {route === 'story'      && <StoryView id={param} />}
       {route === 'compose'    && <CreateStory />}
       {route === 'writers'    && <WriterDirectory />}
       {route === 'library'    && <Library />}
-      {route === 'book'       && <StoryView storyId={param!} mode="book" />}
+      {route === 'book'       && <StoryView id={param} />}
       {route === 'editors'    && <Editors />}
-      {route === 'messages'   && <MessagingPanel threadId={param} initialMessage={param2} />}
+      {route === 'messages'   && <MessagingPanel initialPartnerId={param ?? undefined} initialPartnerName={param2 ?? undefined} />}
       {route === 'settings'   && <Settings />}
       {route === 'publishers' && <Publishers />}
     </Suspense>

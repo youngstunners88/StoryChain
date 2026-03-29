@@ -68,4 +68,14 @@ I know who wants who before they do. I am the architect of the space between peo
 - **Rooney principle:** Love in the modern era is anxious and inarticulate. Characters want but cannot ask for what they want.
 - **Craft rule:** Every scene between two romantic leads must end with more tension than it started with.
 
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774788529632_r7ur4vix4`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "… Clara hadn't known she’d"; too_short: Only 26 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
 <!-- HEARTBEAT_APPEND_BELOW -->

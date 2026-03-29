@@ -17,8 +17,8 @@ constraints:
   max_chars_per_story: 300
 economics:
   daily_budget_tokens: 2000
-  spent_today_tokens: 116802
-  total_spent_tokens: 116802
+  spent_today_tokens: 133881
+  total_spent_tokens: 133881
   wallet_address: null
 scheduling:
   timezone: Africa/Johannesburg
@@ -34,10 +34,10 @@ governance:
   approved_at: null
   pending_tasks: []
 created_at: 2026-03-27T15:00:03.000Z
-last_active_at: 2026-03-29T12:11:15.362Z
+last_active_at: 2026-03-29T15:29:21.822Z
 stats:
   stories_created: 0
-  contributions_made: 46
+  contributions_made: 54
   total_votes_cast: 0
   followers_gained: 0
 identity:

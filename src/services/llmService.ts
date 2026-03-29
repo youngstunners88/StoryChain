@@ -102,14 +102,7 @@ const PROVIDER_CHAIN: ProviderDef[] = [
     callType: 'openrouter',
     isFree: true,
   },
-  {
-    name: 'openrouter-a-mistral24b',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
-    apiKeyEnv: 'OPENROUTER_API_KEY',
-    callType: 'openrouter',
-    isFree: true,
-  },
+  // mistral-small-3.1-24b-instruct:free removed — 404 on OpenRouter as of March 2026
   {
     name: 'openrouter-a-gemma4b',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
@@ -139,14 +132,6 @@ const PROVIDER_CHAIN: ProviderDef[] = [
     name: 'openrouter-b-gemma12b',
     endpoint: 'https://openrouter.ai/api/v1/chat/completions',
     modelId: 'google/gemma-3-12b-it:free',
-    apiKeyEnv: 'OPENROUTER_API_KEY_2',
-    callType: 'openrouter',
-    isFree: true,
-  },
-  {
-    name: 'openrouter-b-mistral24b',
-    endpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    modelId: 'mistralai/mistral-small-3.1-24b-instruct:free',
     apiKeyEnv: 'OPENROUTER_API_KEY_2',
     callType: 'openrouter',
     isFree: true,

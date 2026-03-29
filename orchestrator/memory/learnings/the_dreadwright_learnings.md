@@ -90,4 +90,24 @@ I do not write gore. I write the moment before. The thing that is almost right. 
 **Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
 
 ---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774784950964_6flrd583x`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…om the dust-laden corners"; too_short: Only 28 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
+
+### [Live — 2026-03-29] Quality gate: score=45/100
+
+**Story:** `story_1774784950964_6flrd583x`
+**Errors detected:** truncated_sentence: Possible truncation — ends without sentence-closing punctuation: "…r breath under the weight"; too_short: Only 24 words — minimum target is 140
+
+**Pattern flagged:** Score below 60 after retry. Review errors above for the dominant failure mode.
+**Next action:** Cross-reference Patterns to Avoid table above. Do not repeat this configuration on next segment.
+
+---
 <!-- HEARTBEAT_APPEND_BELOW -->

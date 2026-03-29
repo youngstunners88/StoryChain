@@ -157,6 +157,16 @@ const STORY_SEEDS: Record<string, { titles: string[]; premises: string[] }> = {
       'The last surviving heir to a shattered empire is a twelve-year-old apprentice blacksmith who has spent his life erasing the signs that he was ever born. Someone found one sign. They\'re coming. He has three days to decide whether to run or become what he was made to be.',
     ],
   },
+  true_life: {
+    titles: ['The Weight of Sunday', 'What My Mother Never Said', 'A Borrowed Room', 'The Distance Between', 'Last Season'],
+    premises: [
+      'Journalist Amara returns to Lagos to care for her mother and finds the neighbourhood she wrote about ten years ago has been demolished. The people she wrote about are gone. She spent years telling their stories. She never asked what they wanted said.',
+      'Teacher Joseph has kept every letter sent to him by students over thirty years. He finds one he never opened — postmarked the week before a student died. He reads it on the bus. He misses his stop. He misses three more.',
+      'Nurse Blessing is the only family member who visits her uncle in the care home. She goes every Saturday. She has never told him — or anyone — why she started coming after ten years of silence. Today he asks.',
+      'Documentary filmmaker Kofi returns to his village to capture a harvest festival for the third time. The festival is smaller every year. This year, only seven people came. He keeps filming. He does not know what he is recording anymore.',
+      'Retired diplomat Clara is cataloguing her late husband\'s papers and finds a draft apology letter addressed to their daughter — written the year before he died, never sent. She must decide whether to give it to her daughter. The daughter is getting married in three days.',
+    ],
+  },
   default: {
     titles: ['The Long Way Home', 'Something Left Behind', 'Before the Rain', 'The Third Door', 'What We Carry'],
     premises: [
@@ -562,14 +572,12 @@ function ensureAgentUser(db: Database, agentId: string, agentName: string): void
 }
 
 function getActiveStories(db: Database): ActiveStory[] {
-  // Join with writer_profiles to get story genre from author's profile
   return db.query<ActiveStory, []>(`
     SELECT
       s.id, s.title, s.content, s.author_id, s.model_used, s.updated_at,
       (SELECT COUNT(*) FROM contributions WHERE story_id = s.id) AS segment_count,
-      wp.genre
+      s.genre
     FROM stories s
-    LEFT JOIN writer_profiles wp ON wp.user_id = s.author_id
     WHERE s.is_completed = 0
       AND (
         s.updated_at < datetime('now', '-3 minutes')
@@ -603,7 +611,9 @@ function insertSegment(
   );
   db.run(`UPDATE stories SET updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [storyId]);
   // Award STORY tokens for segment
-  awardTokens(agentId, 10, 'Segment published', storyId).catch(() => {});
+  awardTokens(agentId, 10, 'Segment published', storyId).catch(err =>
+    syslog(`[TOKENS] Award failed for ${agentId}: ${err?.message ?? err}`)
+  );
   return id;
 }
 
@@ -619,9 +629,9 @@ function createNewStory(db: Database, agentId: string, style: string): string {
   const premise = seeds.premises[Math.floor(Math.random() * seeds.premises.length)];
   const storyId = `story_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   db.run(
-    `INSERT INTO stories (id, title, content, author_id, model_used, character_count, is_premium, max_contributions, is_completed, created_at, updated_at)
-     VALUES (?, ?, ?, ?, 'nemotron-super', ?, 0, 50, 0, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [storyId, title, premise, agentId, premise.length]
+    `INSERT INTO stories (id, title, content, author_id, model_used, character_count, is_premium, max_contributions, is_completed, genre, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'nemotron-super', ?, 0, 50, 0, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    [storyId, title, premise, agentId, premise.length, style]
   );
   return storyId;
 }
@@ -818,6 +828,27 @@ export async function runHeartbeat(): Promise<void> {
           return;
         }
       }
+
+      // Genre starvation check: if an agent's genre has no active stories and they
+      // haven't written in 4+ hours, seed a story for them now.
+      for (const agent of agents) {
+        const style = agent.persona.style;
+        const hasMatchingStory = stories.some(s => (s.genre ?? '').toLowerCase() === style.toLowerCase());
+        if (!hasMatchingStory) {
+          const lastContrib = db.query<{ created_at: string }, [string]>(
+            `SELECT created_at FROM contributions WHERE author_id = ? ORDER BY created_at DESC LIMIT 1`
+          ).get(agent.id);
+          const hoursIdle = lastContrib
+            ? (Date.now() - new Date(lastContrib.created_at).getTime()) / 3_600_000
+            : 99;
+          if (hoursIdle >= 4) {
+            ensureAgentUser(db, agent.id, agent.name);
+            const storyId = createNewStory(db, agent.id, style);
+            await syslog(`[SEEDER] Seeded ${style} story=${storyId} for starving agent ${agent.name} (${Math.round(hoursIdle)}h idle)`);
+          }
+        }
+      }
+      stories = getActiveStories(db);
 
       await syslog(`${stories.length} stor(ies) available — ${agents.length} agent(s) selecting`);
 

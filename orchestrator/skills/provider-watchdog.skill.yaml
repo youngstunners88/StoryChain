@@ -1,0 +1,110 @@
+name: provider-watchdog
+version: "1.0"
+description: >
+  Tracks LLM provider health — marks dead/404 providers, flags
+  exhausted daily quotas with in-memory skip cache, removes broken model IDs.
+
+# ─── Provider registry (verified March 2026) ─────────────────────────────────
+providers:
+  groq:
+    endpoint: https://api.groq.com/openai/v1/chat/completions
+    models:
+      - llama-3.3-70b-versatile    # 100K TPD per key
+      - llama-3.1-8b-instant       # 500K TPD per key
+    keys: 12  # GROQ_API_KEY through GROQ_API_KEY_12
+    daily_reset_utc: "00:00"
+    status: active
+
+  gemini:
+    endpoint: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+    models:
+      - gemini-2.5-flash
+      - gemini-2.0-flash-lite-001
+    keys: 5  # GOOGLE_API_KEY through GOOGLE_API_KEY_5
+    daily_reset_utc: "00:00"
+    status: active
+
+  cerebras:
+    endpoint: https://api.cerebras.ai/v1/chat/completions
+    models:
+      - llama-3.3-70b
+    status: active
+
+  openrouter_a:
+    endpoint: https://openrouter.ai/api/v1/chat/completions
+    models:
+      - meta-llama/llama-3.3-70b-instruct:free
+      - google/gemma-3-12b-it:free
+      - google/gemma-3-4b-it:free
+      - nvidia/nemotron-3-super-120b-a12b:free
+      # REMOVED: mistralai/mistral-small-3.1-24b-instruct:free — 404 March 2026
+    daily_limit: 50 req/day
+    status: active
+
+  openrouter_b:
+    endpoint: https://openrouter.ai/api/v1/chat/completions
+    models:
+      - meta-llama/llama-3.3-70b-instruct:free
+      - google/gemma-3-12b-it:free
+      # REMOVED: mistralai/mistral-small-3.1-24b-instruct:free — 404 March 2026
+    status: active
+
+  huggingface:
+    endpoint: https://router.huggingface.co/hf-inference/v1/chat/completions
+    models:
+      - meta-llama/Llama-3.2-3B-Instruct
+    status: degraded  # intermittent 404s
+
+  deepseek:
+    endpoint: https://api.deepseek.com/chat/completions
+    models:
+      - deepseek-chat
+    cost: "$0.0001/1k tokens"
+    status: paid_fallback
+
+  together_ai:
+    endpoint: https://api.together.xyz/v1/chat/completions
+    models:
+      - meta-llama/Llama-3.3-70B-Instruct-Turbo
+    keys: 2
+    status: paid_fallback
+
+  anthropic:
+    endpoint: https://api.anthropic.com/v1/messages
+    models:
+      - claude-sonnet-4-6
+    status: paid_fallback
+
+# ─── Conservation mode ────────────────────────────────────────────────────────
+conservation:
+  threshold_exhausted_runs: 3    # consecutive all-fail runs before backing off
+  backoff_interval_ms: 1800000   # 30 minutes in conservation
+  log_prefix: "[HEARTBEAT] Budget conservation mode"
+
+# ─── Dead model registry ─────────────────────────────────────────────────────
+dead_models:
+  - model: mistralai/mistral-small-3.1-24b-instruct:free
+    provider: openrouter
+    reason: 404 — endpoint removed
+    detected: 2026-03-29
+    removed: true
+
+# ─── Watchdog actions ────────────────────────────────────────────────────────
+# When a provider returns 429 with "tokens per day" or "quota":
+#   → Mark provider as daily-exhausted in memory
+#   → Skip that provider until midnight UTC reset
+#   → Log: [WATCHDOG] Provider X marked exhausted until midnight UTC
+#
+# When a provider returns 404:
+#   → Log warning and remove from chain
+#   → Add to dead_models registry above
+#   → Never retry 404 providers
+
+# ─── Implementation TODO ──────────────────────────────────────────────────────
+# Current: conservation mode backs off heartbeat interval (30 min) after 3 failures
+# Needed:  per-provider in-memory skip cache keyed by provider name + date
+#          so exhausted providers are skipped without hammering them 20x per cycle
+# Location: src/services/llmService.ts — add exhausted Set<string> at module level
+#           On 429 with "per day"/"daily"/"quota": exhaustedProviders.add(provider.name)
+#           In buildRotatedChain: filter out exhaustedProviders entries
+#           Reset exhausted set at midnight UTC via setInterval

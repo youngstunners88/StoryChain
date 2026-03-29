@@ -88,7 +88,7 @@ export async function awardTokens(
   const id = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   db.run(
     `INSERT INTO token_transactions (id, user_id, amount, type, description, story_id, chain)
-     VALUES (?, ?, ?, 'earn', ?, ?, 'offchain')`,
+     VALUES (?, ?, ?, 'bonus', ?, ?, 'offchain')`,
     [id, userId, amount, reason, storyId ?? null],
   );
   db.run(
@@ -110,7 +110,7 @@ export async function slashTokens(
   const id = `tx_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   db.run(
     `INSERT INTO token_transactions (id, user_id, amount, type, description, story_id, chain)
-     VALUES (?, ?, ?, 'slash', ?, ?, 'offchain')`,
+     VALUES (?, ?, ?, 'spend', ?, ?, 'offchain')`,
     [id, userId, -slash, reason, storyId ?? null],
   );
   db.run(
